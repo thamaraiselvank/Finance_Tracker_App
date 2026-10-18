@@ -35,8 +35,13 @@ def get_categories(type: Optional[str] = None, user_id: str = Depends(get_curren
     """, tuple(cat_ids))
     
     subcat_map = {}
+    seen_subcategories = set()
     for sc in subcats:
         c_id = str(sc["category_id"])
+        dedupe_key = (c_id, sc["name"].strip().casefold())
+        if dedupe_key in seen_subcategories:
+            continue
+        seen_subcategories.add(dedupe_key)
         if c_id not in subcat_map:
             subcat_map[c_id] = []
         subcat_map[c_id].append(sc)

@@ -40,7 +40,7 @@ The frontend is a React 18 single-page application built with Vite, Tailwind CSS
 
 - Python 3.10 or later
 - Node.js and npm
-- PostgreSQL for a persistent shared/local PostgreSQL database (optional for quick local development)
+- PostgreSQL for local development and deployment
 
 ## Run locally on Windows
 
@@ -68,7 +68,7 @@ uvicorn app.main:app --reload
 
 The API runs at <http://127.0.0.1:8000>. Interactive API documentation is at <http://127.0.0.1:8000/docs>, and the health check is at <http://127.0.0.1:8000/api/health>.
 
-**Local database fallback:** if PostgreSQL cannot be reached, the backend initializes a SQLite database at `backend/finverse_local.db`. This is convenient for local evaluation; use PostgreSQL for a persistent or shared deployment. The SQLite database is local data and should not be committed.
+The backend requires PostgreSQL. If PostgreSQL is unavailable or its credentials are incorrect, startup fails with a clear connection error; it does not create or switch to a local SQLite database. The `/api/health` endpoint returns HTTP 503 when PostgreSQL cannot be reached.
 
 ### 2. Frontend
 
@@ -110,5 +110,7 @@ uvicorn app.main:app --reload
 
 - The backend loads `.env` from the repository root. Start from `backend/.env.example` and copy it to the root as shown above.
 - The frontend loads its own `frontend/.env`. Start from `frontend/.env.example`.
+- For production, set a unique `SECRET_KEY` with at least 32 characters and set `BACKEND_CORS_ORIGINS` to a JSON array containing only the deployed frontend origin(s), for example `["https://your-app.example"]`. Wildcard CORS origins are rejected in production.
+- The PostgreSQL connection pool defaults to 1–5 connections per backend instance. When deploying to Cloud Run, set a maximum instance count and size the pool so that `maximum instances × PG_MAX_POOL_SIZE` stays within the database connection limit.
 - `.gitignore` excludes local environment files, virtual environments, frontend build/dependency directories, caches, logs, and local SQLite databases. The example environment files remain trackable.
 - Do not use the example `SECRET_KEY` outside local development. Do not commit real credentials or user financial data.

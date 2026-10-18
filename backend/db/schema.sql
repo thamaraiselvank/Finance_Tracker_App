@@ -189,8 +189,10 @@ INSERT INTO categories (id, user_id, name, type, icon, color, is_system) VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- SEED DEFAULT SUBCATEGORIES
-INSERT INTO subcategories (category_id, name) VALUES
-    ('00000000-0000-0000-0000-000000000001', 'Monthly Salary'),
+INSERT INTO subcategories (category_id, name)
+SELECT seed.category_id, seed.name
+FROM (VALUES
+    ('00000000-0000-0000-0000-000000000001'::uuid, 'Monthly Salary'),
     ('00000000-0000-0000-0000-000000000001', 'Bonus & Incentive'),
     ('00000000-0000-0000-0000-000000000002', 'Dividends'),
     ('00000000-0000-0000-0000-000000000002', 'Stock Capital Gains'),
@@ -216,7 +218,12 @@ INSERT INTO subcategories (category_id, name) VALUES
     ('00000000-0000-0000-0000-000000000018', 'Home Loan EMI'),
     ('00000000-0000-0000-0000-000000000018', 'Car Loan EMI'),
     ('00000000-0000-0000-0000-000000000018', 'Personal Loan EMI')
-ON CONFLICT DO NOTHING;
+) AS seed(category_id, name)
+WHERE NOT EXISTS (
+    SELECT 1 FROM subcategories existing
+    WHERE existing.category_id = seed.category_id
+      AND LOWER(existing.name) = LOWER(seed.name)
+);
 
 -- ===== PHASE 2: ADVANCED FINANCIAL PLANNING TABLES =====
 

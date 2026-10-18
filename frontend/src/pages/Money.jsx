@@ -32,6 +32,14 @@ export default function Money({ hideAmounts }) {
   const [summary, setSummary] = useState(null);
   const [categories, setCategories] = useState([]);
   const [accounts, setAccounts] = useState([]);
+  const [budgets, setBudgets] = useState([]);
+  const [budgetDrafts, setBudgetDrafts] = useState({});
+  const [budgetsLoading, setBudgetsLoading] = useState(false);
+  const [budgetRefresh, setBudgetRefresh] = useState(0);
+  const [budgetPeriod, setBudgetPeriod] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [monthBuckets, setMonthBuckets] = useState([]);
   const [monthDataMap, setMonthDataMap] = useState({});
   const [loadingMonths, setLoadingMonths] = useState({});
@@ -125,6 +133,27 @@ export default function Money({ hideAmounts }) {
     fetchData();
   }, [filterType, selectedAccountId, searchQuery]);
 
+  useEffect(() => {
+    if (activeSubTab !== 'budget') return;
+    const [year, month] = budgetPeriod.split('-').map(Number);
+    setBudgetsLoading(true);
+    api.get('/budgets', { params: { month, year } })
+      .then((res) => {
+        setBudgets(res.data || []);
+        setBudgetDrafts((prev) => ({
+          ...prev,
+          ...Object.fromEntries((res.data || [])
+            .filter((budget) => budget.monthly_limit !== null)
+            .map((budget) => [budget.category_id, String(budget.monthly_limit)])),
+        }));
+      })
+      .catch((err) => {
+        console.error('Failed to fetch budgets:', err);
+        alert(err.response?.data?.detail || 'Failed to load monthly budgets');
+      })
+      .finally(() => setBudgetsLoading(false));
+  }, [activeSubTab, budgetPeriod, budgetRefresh]);
+
   const formatCurrency = (val) => {
     if (hideAmounts) return '••••••';
     if (val === undefined || val === null) return '₹0';
@@ -146,6 +175,7 @@ export default function Money({ hideAmounts }) {
         account_id: form.account_id || undefined,
       });
       setShowAddModal(false);
+      setBudgetRefresh((current) => current + 1);
       setForm({
         type: form.type,
         amount: '',
@@ -176,6 +206,7 @@ export default function Money({ hideAmounts }) {
         await Promise.all(deleteModal.payload.map((tx) => api.delete(`/transactions/${tx.id}`)));
       }
       setDeleteModal(null);
+      setBudgetRefresh((current) => current + 1);
       fetchData();
     } catch (err) {
       alert('Failed to delete transaction');
@@ -268,6 +299,7 @@ export default function Money({ hideAmounts }) {
       });
       setShowAddCategoryModal(false);
       setNewCatForm({ name: '', type: 'EXPENSE', color: '#10B981', subcategories: '' });
+      setBudgetRefresh((current) => current + 1);
       fetchData();
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to create category');
@@ -288,6 +320,24 @@ export default function Money({ hideAmounts }) {
       fetchData();
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to create account');
+    }
+  };
+
+  const handleSaveBudget = async (e, categoryId) => {
+    e.preventDefault();
+    const [year, month] = budgetPeriod.split('-').map(Number);
+    try {
+      const res = await api.put('/budgets', {
+        category_id: categoryId,
+        monthly_limit: Number(budgetDrafts[categoryId]),
+        month,
+        year,
+      });
+      setBudgets((current) => current.map((budget) => (
+        budget.category_id === categoryId ? res.data : budget
+      )));
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to save monthly limit');
     }
   };
 
@@ -608,30 +658,87 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
               <h2 className="text-base font-bold text-slate-900">Monthly Spending Budgets</h2>
               <p className="text-xs text-slate-500">Track and cap expenses per category</p>
             </div>
-            <button
-              onClick={() => setShowAddCategoryModal(true)}
-              className="px-3 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" /> New Category
-            </button>
+            <div className="flex items-center gap-3">
+              <input
+                aria-label="Budget month"
+                type="month"
+                value={budgetPeriod}
+                onChange={(e) => setBudgetPeriod(e.target.value)}
+                className="px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700"
+              />
+              <button
+                onClick={() => setShowAddCategoryModal(true)}
+                className="px-3 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" /> New Category
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {categories.filter(c => c.type === 'EXPENSE').map(cat => (
-              <div key={cat.id} className="p-4 border border-slate-200 rounded-xl space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold">
-                  <span className="text-slate-900">{cat.name}</span>
-                  <span className="text-slate-500">No monthly limit set</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-2">
-                  <div className="bg-emerald-600 h-2 rounded-full w-0" />
-                </div>
-                <div className="flex justify-between text-[11px] text-slate-400">
-                  <span>Spent: connect budget data</span>
-                  <span className="text-emerald-700 font-semibold">Remaining: pending</span>
-                </div>
-              </div>
-            ))}
+            {budgets.map((budget) => {
+              const hasLimit = budget.monthly_limit !== null;
+              const progress = hasLimit && budget.monthly_limit > 0
+                ? Math.min((budget.spent / budget.monthly_limit) * 100, 100)
+                : 0;
+              const overBudget = budget.over_budget;
+              return (
+                <form
+                  key={budget.category_id}
+                  onSubmit={(e) => handleSaveBudget(e, budget.category_id)}
+                  className="p-4 border border-slate-200 rounded-xl space-y-3"
+                >
+                  <div className="flex items-center justify-between gap-3 text-xs font-bold">
+                    <span className="text-slate-900">{budget.category_name}</span>
+                    <label className="flex items-center gap-2 text-slate-500 font-medium">
+                      Limit
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        required
+                        aria-label={`${budget.category_name} monthly limit`}
+                        placeholder="Set amount"
+                        value={budgetDrafts[budget.category_id] ?? ''}
+                        onChange={(e) => setBudgetDrafts((prev) => ({
+                          ...prev,
+                          [budget.category_id]: e.target.value,
+                        }))}
+                        className="w-28 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs text-slate-900"
+                      />
+                    </label>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-2" role="progressbar" aria-valuenow={progress} aria-valuemin="0" aria-valuemax="100">
+                    <div
+                      className={`h-2 rounded-full ${overBudget ? 'bg-red-600' : 'bg-emerald-600'}`}
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-slate-600">Spent: {formatCurrency(budget.spent)}</span>
+                    <span className={`font-semibold ${overBudget ? 'text-red-700' : 'text-emerald-700'}`}>
+                      {!hasLimit
+                        ? 'No limit set'
+                        : overBudget
+                          ? `Over by ${formatCurrency(Math.abs(budget.remaining))}`
+                          : `Remaining: ${formatCurrency(budget.remaining)}`}
+                    </span>
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={budgetsLoading}
+                      className="px-3 py-1.5 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white rounded-lg text-xs font-semibold"
+                    >
+                      {hasLimit ? 'Update limit' : 'Set limit'}
+                    </button>
+                  </div>
+                </form>
+              );
+            })}
+            {!budgetsLoading && budgets.length === 0 && (
+              <p className="col-span-full py-8 text-center text-sm text-slate-500">No expense categories found.</p>
+            )}
           </div>
         </div>
       )}
