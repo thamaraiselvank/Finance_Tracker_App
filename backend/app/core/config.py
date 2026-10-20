@@ -34,14 +34,24 @@ class Settings(BaseSettings):
     PG_MAX_POOL_SIZE: int = int(os.getenv("PG_MAX_POOL_SIZE", "5"))
 
     # CORS
-    BACKEND_CORS_ORIGINS: list[str] = [
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-        "https://finance-tracker-app-512203.web.app",
-        "https://finance-tracker-app-512203.firebaseapp.com",
-    ]
+   
+    # CORS
+    BACKEND_CORS_ORIGINS: list[str] = (
+        [
+            "https://finance-tracker-app-512203.web.app",
+            "https://finance-tracker-app-512203.firebaseapp.com",
+        ]
+        if os.getenv("ENVIRONMENT", "development").lower() in {"production", "prod"}
+        else [
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:3000",
+            "https://finance-tracker-app-512203.web.app",
+            "https://finance-tracker-app-512203.firebaseapp.com",
+        ]
+    )
+
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
