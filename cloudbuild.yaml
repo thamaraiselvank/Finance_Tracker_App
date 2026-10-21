@@ -17,3 +17,6 @@ steps:
 images:
   - asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-backend:latest
   - asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-frontend:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
