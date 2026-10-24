@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { TrendingUp, Target, CreditCard, Shield, AlertCircle, CheckCircle2 } from 'lucide-react';
 import api from '../services/api';
 import FinancialHealthCard from '../components/dashboard/FinancialHealthCard';
+import useCurrency from '../utils/useCurrency';
 
 export default function Dashboard() {
+  const { formatCurrency } = useCurrency();
   const [health, setHealth] = useState(null);
   const [goalsSummary, setGoalsSummary] = useState(null);
   const [debtsSummary, setDebtsSummary] = useState(null);
@@ -115,7 +117,7 @@ export default function Dashboard() {
                 <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-700">
                   <div className="bg-slate-700 rounded p-2">
                     <p className="text-xs text-slate-400">Monthly Allocation</p>
-                    <p className="text-sm font-bold text-white">₹{(goalsSummary.total_monthly_allocation || 0).toLocaleString()}</p>
+                    <p className="text-sm font-bold text-white">{formatCurrency(goalsSummary.total_monthly_allocation)}</p>
                   </div>
                   <div className="bg-slate-700 rounded p-2">
                     <p className="text-xs text-slate-400">Completed</p>
@@ -134,21 +136,21 @@ export default function Dashboard() {
                   <CreditCard size={24} className="text-red-400" />
                   Debt Management
                 </h3>
-                <span className="text-2xl font-bold text-red-400">₹{(debtsSummary.total_outstanding || 0).toLocaleString()}</span>
+                <span className="text-2xl font-bold text-red-400">{formatCurrency(debtsSummary.total_outstanding)}</span>
               </div>
 
               <div className="space-y-3">
                 <div>
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-slate-400">Total Outstanding</span>
-                    <span className="text-red-400 font-semibold">₹{(debtsSummary.total_outstanding || 0).toLocaleString()}</span>
+                    <span className="text-red-400 font-semibold">{formatCurrency(debtsSummary.total_outstanding)}</span>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-700">
                   <div className="bg-slate-700 rounded p-2">
                     <p className="text-xs text-slate-400">Monthly EMI</p>
-                    <p className="text-sm font-bold text-orange-400">₹{(debtsSummary.total_monthly_emi || 0).toLocaleString()}</p>
+                    <p className="text-sm font-bold text-orange-400">{formatCurrency(debtsSummary.total_monthly_emi)}</p>
                   </div>
                   <div className="bg-slate-700 rounded p-2">
                     <p className="text-xs text-slate-400">Debt-to-Income</p>
@@ -193,11 +195,11 @@ export default function Dashboard() {
                 <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-700">
                   <div className="bg-slate-700 rounded p-2">
                     <p className="text-xs text-slate-400">Sum Insured</p>
-                    <p className="text-sm font-bold text-blue-400">₹{(insuranceSummary.total_sum_insured || 0).toLocaleString()}</p>
+                    <p className="text-sm font-bold text-blue-400">{formatCurrency(insuranceSummary.total_sum_insured)}</p>
                   </div>
                   <div className="bg-slate-700 rounded p-2">
                     <p className="text-xs text-slate-400">Annual Premium</p>
-                    <p className="text-sm font-bold text-purple-400">₹{(insuranceSummary.total_annual_premium || 0).toLocaleString()}</p>
+                    <p className="text-sm font-bold text-purple-400">{formatCurrency(insuranceSummary.total_annual_premium)}</p>
                   </div>
                 </div>
 

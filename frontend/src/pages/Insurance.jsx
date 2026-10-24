@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Shield, Calendar, Clock3, CreditCard, Pencil, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { inrInWords } from '../utils/numberWords';
+import useCurrency from '../utils/useCurrency';
 
 const emptyPolicy = {
     policy_name: '',
@@ -21,6 +22,7 @@ const emptyPolicy = {
   };
 
 export default function InsurancePage() {
+  const { currency, currencySymbol, formatCurrency } = useCurrency();
   const [policies, setPolicies] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -217,11 +219,11 @@ export default function InsurancePage() {
           </div>
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Total Sum Insured</p>
-            <p className="text-3xl font-bold text-blue-400">₹{(summary.total_sum_insured || 0).toLocaleString()}</p>
+            <p className="text-3xl font-bold text-blue-400">{formatCurrency(summary.total_sum_insured)}</p>
           </div>
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Annual Premium</p>
-            <p className="text-3xl font-bold text-purple-400">₹{(summary.total_annual_premium || 0).toLocaleString()}</p>
+            <p className="text-3xl font-bold text-purple-400">{formatCurrency(summary.total_annual_premium)}</p>
           </div>
         </div>
       )}
@@ -273,13 +275,13 @@ export default function InsurancePage() {
               <div className="mt-5 grid grid-cols-[1.2fr_0.8fr] gap-2">
                 <div className="finance-card-feature p-3.5">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Sum insured</p>
-                  <p className="mt-1 text-xl font-bold text-white">₹{(Number(policy.sum_insured) || 0).toLocaleString()}</p>
+                  <p className="mt-1 text-xl font-bold text-white">{formatCurrency(policy.sum_insured)}</p>
                   <p className="mt-1 truncate text-[10px] text-slate-500">{policy.coverage_type || 'Coverage details not set'}</p>
                 </div>
                 <div className="rounded-lg border border-white/[0.06] bg-black/10 p-3.5">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Annual premium</p>
-                  <p className="finance-accent-info mt-1 text-lg font-bold">₹{(Number(policy.annual_premium) || 0).toLocaleString()}</p>
-                  <p className="mt-1 truncate text-[10px] text-slate-500">₹{installment.toLocaleString(undefined, { maximumFractionDigits: 0 })} · {frequencyLabels[frequency] || frequency}</p>
+                  <p className="finance-accent-info mt-1 text-lg font-bold">{formatCurrency(policy.annual_premium)}</p>
+                  <p className="mt-1 truncate text-[10px] text-slate-500">{formatCurrency(installment)} · {frequencyLabels[frequency] || frequency}</p>
                 </div>
               </div>
 
@@ -330,11 +332,11 @@ export default function InsurancePage() {
 
       {/* Create Policy Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-xl p-8 max-w-md w-full border border-slate-700 max-h-screen overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-xl p-6 md:p-8 max-w-4xl w-full border border-slate-700 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold text-white mb-6">{editingPolicy ? 'Edit Policy' : 'Add New Policy'}</h2>
 
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">Policy Name</label>
                 <input
@@ -363,7 +365,7 @@ export default function InsurancePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Sum Insured (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Sum Insured ({currencySymbol})</label>
                 <input
                   type="number"
                   value={newPolicy.sum_insured}
@@ -371,11 +373,11 @@ export default function InsurancePage() {
                   placeholder="0"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newPolicy.sum_insured)}</p>
+                <p className="text-xs text-slate-400 mt-1">{inrInWords(newPolicy.sum_insured, currency)}</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Annual Premium (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Annual Premium ({currencySymbol})</label>
                 <input
                   type="number"
                   value={newPolicy.annual_premium}
@@ -383,10 +385,10 @@ export default function InsurancePage() {
                   placeholder="0"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newPolicy.annual_premium)}</p>
+                <p className="text-xs text-slate-400 mt-1">{inrInWords(newPolicy.annual_premium, currency)}</p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="contents">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Payment Frequency</label>
                   <select
@@ -435,7 +437,28 @@ export default function InsurancePage() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Coverage Type</label>
+                <input
+                  type="text"
+                  value={newPolicy.coverage_type}
+                  onChange={(e) => setNewPolicy({...newPolicy, coverage_type: e.target.value})}
+                  placeholder="e.g., Individual or Family"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Dependents Covered</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={newPolicy.dependents_covered}
+                  onChange={(e) => setNewPolicy({...newPolicy, dependents_covered: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value))})}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
+                />
+              </div>
+
+              <div className="contents">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Next Payment Date</label>
                   <input
@@ -456,6 +479,15 @@ export default function InsurancePage() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Start Date</label>
+                <input
+                  type="date"
+                  value={newPolicy.start_date}
+                  onChange={(e) => setNewPolicy({...newPolicy, start_date: e.target.value})}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">Renewal Date</label>
                 <input

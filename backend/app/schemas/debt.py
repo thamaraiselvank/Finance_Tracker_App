@@ -20,11 +20,11 @@ class DebtCreate(DebtBase):
 class DebtUpdate(BaseModel):
     debt_name: Optional[str] = None
     debt_type: Optional[str] = None
-    principal_amount: Optional[float] = None
-    current_outstanding: Optional[float] = None
-    interest_rate_pct: Optional[float] = None
+    principal_amount: Optional[float] = Field(None, gt=0)
+    current_outstanding: Optional[float] = Field(None, ge=0)
+    interest_rate_pct: Optional[float] = Field(None, ge=0)
     tenure_months: Optional[int] = None
-    monthly_emi: Optional[float] = None
+    monthly_emi: Optional[float] = Field(None, ge=0)
     priority_payoff: Optional[bool] = None
     payoff_strategy: Optional[str] = None
 

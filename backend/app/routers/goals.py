@@ -94,8 +94,8 @@ def get_goals_progress(user_id: str = Depends(get_current_user_id)):
         summary = fetch_one("""
             SELECT
                 COUNT(*) as total_goals,
-                SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_goals,
-                SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) as active_goals,
+                COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END), 0) as completed_goals,
+                COALESCE(SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END), 0) as active_goals,
                 COALESCE(SUM(target_amount), 0) as total_target_amount,
                 COALESCE(SUM(current_amount), 0) as total_current_amount,
                 COALESCE(SUM(allocated_monthly_savings), 0) as total_monthly_allocation
@@ -205,4 +205,3 @@ def delete_goal(goal_id: str, user_id: str = Depends(get_current_user_id)):
     except Exception as e:
         logger.error(f"Error deleting goal: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-

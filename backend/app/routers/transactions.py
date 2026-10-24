@@ -103,37 +103,62 @@ def get_transaction_months(user_id: str = Depends(get_current_user_id)):
 def get_transactions_summary(
     month: Optional[int] = None,
     year: Optional[int] = None,
+    account_id: Optional[str] = None,
+    start_date: Optional[datetime.date] = None,
+    end_date: Optional[datetime.date] = None,
     user_id: str = Depends(get_current_user_id)
 ):
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=422, detail="Start date must be on or before end date.")
+
     now = datetime.date.today()
     sel_month = month or now.month
     sel_year = year or now.year
+    month_conditions = ["user_id = %s"]
+    month_params = [user_id]
+    if start_date:
+        month_conditions.append("date >= %s")
+        month_params.append(start_date)
+    else:
+        month_conditions.append("EXTRACT(MONTH FROM date) = %s")
+        month_conditions.append("EXTRACT(YEAR FROM date) = %s")
+        month_params.extend([sel_month, sel_year])
+    if end_date:
+        month_conditions.append("date <= %s")
+        month_params.append(end_date)
+
+    average_conditions = ["user_id = %s", "date >= CURRENT_DATE - INTERVAL '90 days'"]
+    average_params = [user_id]
+
+    if account_id:
+        month_conditions.append("account_id = %s")
+        month_params.append(account_id)
+        average_conditions.append("account_id = %s")
+        average_params.append(account_id)
     
     # Calculate for selected month
-    month_stats = fetch_one("""
+    month_stats = fetch_one(f"""
         SELECT 
             COALESCE(SUM(CASE WHEN type = 'INCOME' THEN amount ELSE 0 END), 0) as total_income,
             COALESCE(SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0 END), 0) as total_expense
         FROM transactions
-        WHERE user_id = %s 
-          AND EXTRACT(MONTH FROM date) = %s 
-          AND EXTRACT(YEAR FROM date) = %s
-    """, (user_id, sel_month, sel_year))
+        WHERE {" AND ".join(month_conditions)}
+    """, tuple(month_params))
     
     tot_income = float(month_stats.get("total_income") or 0.0) if month_stats else 0.0
     tot_expense = float(month_stats.get("total_expense") or 0.0) if month_stats else 0.0
     
     # Calculate 3-month rolling monthly average
-    avg_stats = fetch_one("""
+    avg_stats = fetch_one(f"""
         SELECT 
             COALESCE(SUM(CASE WHEN type = 'INCOME' THEN amount ELSE 0 END), 0) / 3.0 as avg_income,
             COALESCE(SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0 END), 0) / 3.0 as avg_expense
         FROM transactions
-        WHERE user_id = %s AND date >= CURRENT_DATE - INTERVAL '90 days'
-    """, (user_id,))
+        WHERE {" AND ".join(average_conditions)}
+    """, tuple(average_params))
     
-    avg_inc = float(avg_stats.get("avg_income") or tot_income) if avg_stats else tot_income
-    avg_exp = float(avg_stats.get("avg_expense") or tot_expense) if avg_stats else tot_expense
+    avg_inc = float(avg_stats.get("avg_income") or 0.0) if avg_stats else 0.0
+    avg_exp = float(avg_stats.get("avg_expense") or 0.0) if avg_stats else 0.0
     
     # Recent 10 transactions
     recent_txs = fetch_all("""
@@ -157,8 +182,8 @@ def get_transactions_summary(
         "total_income": round(tot_income, 2),
         "total_expense": round(tot_expense, 2),
         "net_savings": round(tot_income - tot_expense, 2),
-        "monthly_avg_income": round(avg_inc if avg_inc > 0 else tot_income, 2),
-        "monthly_avg_expense": round(avg_exp if avg_exp > 0 else tot_expense, 2),
+        "monthly_avg_income": round(avg_inc, 2),
+        "monthly_avg_expense": round(avg_exp, 2),
         "recent_transactions": recent_txs
     }
 
@@ -246,11 +271,57 @@ def update_transaction(transaction_id: str, payload: TransactionUpdate, user_id:
         WHERE t.id = %s
     """, (transaction_id,))
 
+@router.delete("/all")
+def delete_all_transactions(user_id: str = Depends(get_current_user_id)):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE accounts AS account
+                SET balance = account.balance - COALESCE(tx.income, 0) + COALESCE(tx.expense, 0),
+                    updated_at = CURRENT_TIMESTAMP
+                FROM (
+                    SELECT
+                        account_id,
+                        SUM(CASE WHEN type = 'INCOME' THEN amount ELSE 0 END) AS income,
+                        SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0 END) AS expense
+                    FROM transactions
+                    WHERE user_id = %s AND account_id IS NOT NULL
+                    GROUP BY account_id
+                ) AS tx
+                WHERE account.id = tx.account_id AND account.user_id = %s
+            """, (user_id, user_id))
+            cur.execute("DELETE FROM transactions WHERE user_id = %s", (user_id,))
+            deleted_count = cur.rowcount
+
+    return {
+        "message": f"Deleted {deleted_count} transactions.",
+        "deleted_count": deleted_count,
+    }
+
+
 @router.delete("/{transaction_id}")
 def delete_transaction(transaction_id: str, user_id: str = Depends(get_current_user_id)):
-    tx = fetch_one("SELECT * FROM transactions WHERE id = %s AND user_id = %s", (transaction_id, user_id))
-    if not tx:
-        raise HTTPException(status_code=404, detail="Transaction not found.")
-        
-    execute_query("DELETE FROM transactions WHERE id = %s AND user_id = %s", (transaction_id, user_id))
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM transactions WHERE id = %s AND user_id = %s FOR UPDATE",
+                (transaction_id, user_id),
+            )
+            tx = cur.fetchone()
+            if not tx:
+                raise HTTPException(status_code=404, detail="Transaction not found.")
+
+            if tx["account_id"] and tx["type"] in ("INCOME", "EXPENSE"):
+                balance_delta = -tx["amount"] if tx["type"] == "INCOME" else tx["amount"]
+                cur.execute("""
+                    UPDATE accounts
+                    SET balance = balance + %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s AND user_id = %s
+                """, (balance_delta, tx["account_id"], user_id))
+
+            cur.execute(
+                "DELETE FROM transactions WHERE id = %s AND user_id = %s",
+                (transaction_id, user_id),
+            )
+
     return {"message": "Transaction deleted successfully."}

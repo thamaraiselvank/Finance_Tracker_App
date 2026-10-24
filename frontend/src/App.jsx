@@ -15,6 +15,7 @@ import Calculators from './pages/Calculators';
 import Import from './pages/Import';
 import AIAdvisor from './pages/AIAdvisor';
 import Profile from './pages/Profile';
+import preventNegativeNumberInput from './utils/preventNegativeNumberInput';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -56,7 +57,7 @@ export default function App() {
   }
 
   return (
-    <div className={`min-h-screen app-shell theme-${theme} flex flex-col md:flex-row`}>
+    <div className={`min-h-screen app-shell theme-${theme} flex flex-col lg:flex-row`}>
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -77,7 +78,10 @@ export default function App() {
         />
 
         {/* Page Switcher */}
-        <main className="flex-1 overflow-y-auto pb-12">
+        <main
+          className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-24 lg:pb-12"
+          onChangeCapture={preventNegativeNumberInput}
+        >
           {(activeTab === 'dashboard' || activeTab === 'overview') && (
             <Overview hideAmounts={hideAmounts} setActiveTab={setActiveTab} />
           )}

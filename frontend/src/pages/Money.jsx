@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Plus, 
   Search, 
@@ -22,15 +22,30 @@ import {
   ChevronDown,
   ChevronRight,
   Tags,
-  NotebookText
+  NotebookText,
+  Loader2
 } from 'lucide-react';
 import api from '../services/api';
+import useCurrency from '../utils/useCurrency';
+
+const formatLocalDate = (date) => (
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+);
+
+const getCurrentMonthStart = () => {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+};
 
 export default function Money({ hideAmounts }) {
+  const { formatCurrency: formatCurrencyValue, currencySymbol } = useCurrency();
   const [activeSubTab, setActiveSubTab] = useState('transactions'); // 'transactions', 'budget', 'accounts', 'insights'
   const [transactions, setTransactions] = useState([]);
   const [summary, setSummary] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [categoriesError, setCategoriesError] = useState('');
+  const categoriesRequestVersion = useRef(0);
   const [accounts, setAccounts] = useState([]);
   const [budgets, setBudgets] = useState([]);
   const [budgetDrafts, setBudgetDrafts] = useState({});
@@ -43,9 +58,19 @@ export default function Money({ hideAmounts }) {
   const [monthBuckets, setMonthBuckets] = useState([]);
   const [monthDataMap, setMonthDataMap] = useState({});
   const [loadingMonths, setLoadingMonths] = useState({});
+  const monthRequestVersion = useRef(0);
+  const summaryRequestVersion = useRef(0);
+  const accountSummaryInitialized = useRef(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState('');
+  const [transactionListError, setTransactionListError] = useState('');
   const [filterType, setFilterType] = useState('ALL'); // 'EXPENSE', 'INCOME', 'TRANSFER', 'ALL'
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [dateRange, setDateRange] = useState(() => ({
+    start: getCurrentMonthStart(),
+    end: formatLocalDate(new Date()),
+  }));
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
   const [showAddAccountModal, setShowAddAccountModal] = useState(false);
@@ -55,7 +80,7 @@ export default function Money({ hideAmounts }) {
   const [form, setForm] = useState({
     type: 'INCOME',
     amount: '',
-    date: new Date().toISOString().split('T')[0],
+    date: formatLocalDate(new Date()),
     description: '',
     category_id: '',
     subcategory_id: '',
@@ -79,35 +104,110 @@ export default function Money({ hideAmounts }) {
     institution: '',
   });
 
-  const fetchData = async () => {
+  const fetchCategories = async () => {
+    const requestVersion = ++categoriesRequestVersion.current;
+    setCategoriesLoading(true);
+    setCategoriesError('');
     try {
-      const [sumRes, catRes, accRes, monthsRes] = await Promise.all([
-        api.get('/transactions/summary'),
-        api.get('/categories'),
-        api.get('/accounts'),
-        api.get('/transactions/months')
-      ]);
-      setSummary(sumRes.data);
-      setCategories(catRes.data);
-      setAccounts(accRes.data);
-      setMonthBuckets(monthsRes.data || []);
-      setMonthDataMap({});
-      setLoadingMonths({});
-      setTransactions([]);
+      const response = await api.get('/categories');
+      if (requestVersion !== categoriesRequestVersion.current) return;
+      setCategories(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
-      console.error('Failed to fetch transactions:', err);
+      console.error('Failed to fetch categories:', err);
+      if (requestVersion === categoriesRequestVersion.current) {
+        setCategories([]);
+        setCategoriesError('Unable to load categories.');
+      }
+    } finally {
+      if (requestVersion === categoriesRequestVersion.current) {
+        setCategoriesLoading(false);
+      }
+    }
+  };
+
+  const fetchData = async () => {
+    const requestVersion = ++monthRequestVersion.current;
+    summaryRequestVersion.current += 1;
+    setSummary(null);
+    setSummaryLoading(true);
+    setSummaryError('');
+    setTransactionListError('');
+    setMonthBuckets([]);
+    setMonthDataMap({});
+    setLoadingMonths({});
+    setTransactions([]);
+    setExpandedMonths({});
+    setExpandedDates({});
+
+    const summaryRequest = fetchSummary();
+    const categoriesRequest = fetchCategories();
+    const results = await Promise.allSettled([
+      api.get('/accounts'),
+      api.get('/transactions/months'),
+    ]);
+    if (requestVersion !== monthRequestVersion.current) return;
+
+    const [accountsResult, monthsResult] = results;
+    if (accountsResult.status === 'fulfilled') {
+      setAccounts(accountsResult.value.data);
+    } else {
+      console.error('Failed to fetch accounts:', accountsResult.reason);
+    }
+    if (monthsResult.status === 'fulfilled') {
+      setMonthBuckets(monthsResult.value.data || []);
+    } else {
+      console.error('Failed to fetch transaction months:', monthsResult.reason);
+      setTransactionListError('Unable to load the transaction list. Please try again.');
+    }
+    await Promise.all([categoriesRequest, summaryRequest]);
+  };
+
+  const retryFetchCategories = async () => {
+    await fetchCategories();
+  };
+
+  const fetchSummary = async () => {
+    const requestVersion = ++summaryRequestVersion.current;
+    setSummary(null);
+    setSummaryLoading(true);
+    setSummaryError('');
+    try {
+      const res = await api.get('/transactions/summary', {
+        params: {
+          account_id: selectedAccountId || undefined,
+          start_date: dateRange.start,
+          end_date: dateRange.end,
+        },
+      });
+      if (requestVersion === summaryRequestVersion.current) {
+        setSummary(res.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch transaction summary:', err);
+      if (requestVersion === summaryRequestVersion.current) {
+        setSummary(null);
+        setSummaryError('Unable to load transaction totals. Please try again.');
+      }
+    } finally {
+      if (requestVersion === summaryRequestVersion.current) {
+        setSummaryLoading(false);
+      }
     }
   };
 
   const fetchMonthTransactions = async (year, monthIndex) => {
     const monthKey = `${year}-${monthIndex}`;
     if (monthDataMap[monthKey]) return;
+    const requestVersion = monthRequestVersion.current;
 
     setLoadingMonths((prev) => ({ ...prev, [monthKey]: true }));
 
     try {
-      const startDate = new Date(year, monthIndex, 1).toISOString().slice(0, 10);
-      const endDate = new Date(year, monthIndex + 1, 0).toISOString().slice(0, 10);
+      const monthStart = `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+      const monthEnd = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      const startDate = dateRange.start > monthStart ? dateRange.start : monthStart;
+      const endDate = dateRange.end < monthEnd ? dateRange.end : monthEnd;
 
       const res = await api.get('/transactions', {
         params: {
@@ -120,18 +220,44 @@ export default function Money({ hideAmounts }) {
         }
       });
 
-      setMonthDataMap((prev) => ({ ...prev, [monthKey]: res.data }));
-      setTransactions(res.data);
+      if (requestVersion === monthRequestVersion.current) {
+        setMonthDataMap((prev) => ({ ...prev, [monthKey]: res.data }));
+        setTransactions(res.data);
+        setTransactionListError('');
+      }
     } catch (err) {
       console.error('Failed to fetch month transactions:', err);
+      if (requestVersion === monthRequestVersion.current) {
+        setTransactionListError('Unable to load transactions for this month. Please try again.');
+      }
     } finally {
-      setLoadingMonths((prev) => ({ ...prev, [monthKey]: false }));
+      if (requestVersion === monthRequestVersion.current) {
+        setLoadingMonths((prev) => ({ ...prev, [monthKey]: false }));
+      }
     }
   };
 
   useEffect(() => {
     fetchData();
-  }, [filterType, selectedAccountId, searchQuery]);
+  }, []);
+
+  useEffect(() => {
+    if (!accountSummaryInitialized.current) {
+      accountSummaryInitialized.current = true;
+      return;
+    }
+    fetchSummary();
+  }, [selectedAccountId, dateRange]);
+
+  useEffect(() => {
+    monthRequestVersion.current += 1;
+    setMonthDataMap({});
+    setLoadingMonths({});
+    setTransactions([]);
+    setExpandedMonths({});
+    setExpandedDates({});
+    setTransactionListError('');
+  }, [filterType, selectedAccountId, searchQuery, dateRange]);
 
   useEffect(() => {
     if (activeSubTab !== 'budget') return;
@@ -156,12 +282,12 @@ export default function Money({ hideAmounts }) {
 
   const formatCurrency = (val) => {
     if (hideAmounts) return '••••••';
-    if (val === undefined || val === null) return '₹0';
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0
-    }).format(val);
+    return formatCurrencyValue(val);
+  };
+  const formatSummaryValue = (val) => {
+    if (summaryLoading) return 'Loading…';
+    if (summaryError) return 'Unavailable';
+    return formatCurrency(val);
   };
 
   const handleCreateTransaction = async (e) => {
@@ -179,7 +305,7 @@ export default function Money({ hideAmounts }) {
       setForm({
         type: form.type,
         amount: '',
-        date: new Date().toISOString().split('T')[0],
+        date: formatLocalDate(new Date()),
         description: '',
         category_id: '',
         subcategory_id: '',
@@ -204,6 +330,8 @@ export default function Money({ hideAmounts }) {
         await api.delete(`/transactions/${deleteModal.payload.id}`);
       } else if (deleteModal.type === 'month') {
         await Promise.all(deleteModal.payload.map((tx) => api.delete(`/transactions/${tx.id}`)));
+      } else if (deleteModal.type === 'all') {
+        await api.delete('/transactions/all');
       }
       setDeleteModal(null);
       setBudgetRefresh((current) => current + 1);
@@ -229,6 +357,9 @@ export default function Money({ hideAmounts }) {
       const year = Number(bucket.year);
       const monthIndex = Number(bucket.month) - 1;
       const monthKey = bucket.month_key || `${year}-${monthIndex}`;
+      const monthStart = `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
+      const monthEnd = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(new Date(year, monthIndex + 1, 0).getDate()).padStart(2, '0')}`;
+      if (monthEnd < dateRange.start || monthStart > dateRange.end) return;
       const monthLabel = new Date(year, monthIndex, 1).toLocaleString('en-US', { month: 'long' });
 
       if (!yearMap.has(year)) {
@@ -250,12 +381,11 @@ export default function Money({ hideAmounts }) {
         months: yearGroup.months.sort((a, b) => b.monthIndex - a.monthIndex),
       }))
       .sort((a, b) => b.year - a.year);
-  }, [monthBuckets, monthDataMap]);
+  }, [monthBuckets, monthDataMap, dateRange]);
 
   const [expandedYears, setExpandedYears] = useState({});
   const [expandedMonths, setExpandedMonths] = useState({});
   const [expandedDates, setExpandedDates] = useState({});
-
   const toggleYear = (year) => {
     setExpandedYears((prev) => ({
       ...prev,
@@ -272,7 +402,7 @@ export default function Money({ hideAmounts }) {
       [monthKey]: nextState,
     }));
 
-    if (nextState && !monthDataMap[monthKey]) {
+    if (nextState && !monthDataMap[monthKey] && !loadingMonths[monthKey]) {
       await fetchMonthTransactions(year, monthIndex);
     }
   };
@@ -291,7 +421,7 @@ export default function Money({ hideAmounts }) {
         .split(',')
         .map(s => s.trim())
         .filter(Boolean);
-      await api.post('/categories', {
+      const response = await api.post('/categories', {
         name: newCatForm.name,
         type: newCatForm.type,
         color: newCatForm.color,
@@ -300,7 +430,13 @@ export default function Money({ hideAmounts }) {
       setShowAddCategoryModal(false);
       setNewCatForm({ name: '', type: 'EXPENSE', color: '#10B981', subcategories: '' });
       setBudgetRefresh((current) => current + 1);
-      fetchData();
+      await fetchData();
+      setForm((current) => ({
+        ...current,
+        type: response.data.type,
+        category_id: response.data.id,
+        subcategory_id: '',
+      }));
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to create category');
     }
@@ -342,6 +478,10 @@ export default function Money({ hideAmounts }) {
   };
 
   const selectedCatObj = categories.find(c => String(c.id) === String(form.category_id));
+  const transactionCategories = categories.filter(
+    (category) => String(category.type || '').trim().toUpperCase() === form.type
+  );
+  const totalTransactionCount = monthBuckets.reduce((count, bucket) => count + Number(bucket.transaction_count || 0), 0);
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
@@ -351,7 +491,7 @@ export default function Money({ hideAmounts }) {
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Transactions</h1>
           <p className="text-xs text-slate-500 mt-0.5">{transactions.length} entries</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
@@ -380,6 +520,14 @@ export default function Money({ hideAmounts }) {
           >
             <Download className="w-3.5 h-3.5" /> Export
           </button>
+          {totalTransactionCount > 0 && (
+            <button
+              onClick={() => openDeleteConfirm('all', totalTransactionCount)}
+              className="px-3.5 py-1.5 border border-red-200 hover:bg-red-50 text-red-600 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete All
+            </button>
+          )}
           <button
             onClick={() => setShowAddModal(true)}
             className="px-4 py-2 bg-emerald-800 hover:bg-emerald-900 text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
@@ -444,31 +592,96 @@ export default function Money({ hideAmounts }) {
                 ))}
               </select>
 
-              <div className="text-xs text-slate-400 font-medium">
-                This Month
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <label className="flex items-center gap-1.5 text-slate-500 font-medium">
+                  From
+                  <input
+                    aria-label="Start date"
+                    type="date"
+                    value={dateRange.start}
+                    max={dateRange.end}
+                    onChange={(e) => setDateRange((current) => ({
+                      ...current,
+                      start: e.target.value,
+                      end: e.target.value > current.end ? e.target.value : current.end,
+                    }))}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-slate-700"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 text-slate-500 font-medium">
+                  To
+                  <input
+                    aria-label="End date"
+                    type="date"
+                    value={dateRange.end}
+                    min={dateRange.start}
+                    max={formatLocalDate(new Date())}
+                    onChange={(e) => setDateRange((current) => ({
+                      ...current,
+                      start: e.target.value < current.start ? e.target.value : current.start,
+                      end: e.target.value,
+                    }))}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-slate-700"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setDateRange({ start: getCurrentMonthStart(), end: formatLocalDate(new Date()) })}
+                  className="rounded-lg px-2 py-1.5 font-semibold text-emerald-800 hover:bg-emerald-50"
+                >
+                  This month
+                </button>
               </div>
             </div>
           </div>
 
-          {/* TOTAL & MONTHLY AVG CARDS (Finverse Screenshot Style) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total</span>
-              <p className="text-2xl font-extrabold text-emerald-800 mt-1">
-                +{formatCurrency(summary?.total_income || 0)}
-              </p>
+          {summaryError && (
+            <p role="alert" className="text-xs font-medium text-red-600">
+              {summaryError}
+            </p>
+          )}
+          {transactionListError && (
+            <p role="alert" className="text-xs font-medium text-red-600">
+              {transactionListError}
+            </p>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total inflow · selected dates</span>
+              <p className="text-2xl font-extrabold text-emerald-800 mt-1">{formatSummaryValue(summary?.total_income)}</p>
             </div>
-            <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Monthly Avg</span>
-              <p className="text-2xl font-extrabold text-emerald-800 mt-1">
-                +{formatCurrency(summary?.monthly_avg_income || 0)}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total outflow · selected dates</span>
+              <p className="text-2xl font-extrabold text-red-700 mt-1">{formatSummaryValue(summary?.total_expense)}</p>
+            </div>
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Net savings · selected dates</span>
+              <p className={`text-2xl font-extrabold mt-1 ${(summary?.net_savings || 0) >= 0 ? 'text-blue-800' : 'text-red-700'}`}>
+                {formatSummaryValue(summary?.net_savings)}
               </p>
-              <span className="text-[11px] text-slate-400 mt-0.5 block">This Month</span>
+              <span className="text-[11px] text-slate-400 mt-0.5 block">Inflow minus outflow</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Average monthly inflow</span>
+              <p className="text-xl font-extrabold text-emerald-800 mt-1">{formatSummaryValue(summary?.monthly_avg_income)}</p>
+              <span className="text-[11px] text-slate-400 mt-0.5 block">Last 90 days divided by 3</span>
+            </div>
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Average monthly outflow</span>
+              <p className="text-xl font-extrabold text-red-700 mt-1">{formatSummaryValue(summary?.monthly_avg_expense)}</p>
+              <span className="text-[11px] text-slate-400 mt-0.5 block">Last 90 days divided by 3</span>
             </div>
           </div>
 
           <div className="space-y-4">
-            {groupedTransactions.length > 0 ? (
+            {transactionListError ? (
+              <div className="rounded-2xl border border-red-200 bg-white p-8 text-center text-sm text-red-600" role="status">
+                Transaction list unavailable. Your summary totals are loaded separately.
+              </div>
+            ) : groupedTransactions.length > 0 ? (
               groupedTransactions.map((yearGroup) => {
 const yearOpen = expandedYears[yearGroup.year] ?? false;
 
@@ -492,8 +705,9 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                         {yearGroup.months.map((monthGroup) => {
                           const isMonthOpen = expandedMonths[monthGroup.key] ?? false;
                           const monthTotal = monthGroup.transactions.reduce((sum, tx) => {
-                            const value = tx.type === 'INCOME' ? Number(tx.amount) : -Number(tx.amount);
-                            return sum + value;
+                            if (tx.type === 'INCOME') return sum + Number(tx.amount);
+                            if (tx.type === 'EXPENSE') return sum - Number(tx.amount);
+                            return sum;
                           }, 0);
 
                           return (
@@ -543,7 +757,11 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                                     }, {})
                                   ).map(([dateKey, dateTransactions]) => {
                                     const isDateOpen = expandedDates[dateKey] ?? false;
-                                    const dateTotal = dateTransactions.reduce((sum, tx) => sum + (tx.type === 'INCOME' ? Number(tx.amount) : -Number(tx.amount)), 0);
+                                    const dateTotal = dateTransactions.reduce((sum, tx) => {
+                                      if (tx.type === 'INCOME') return sum + Number(tx.amount);
+                                      if (tx.type === 'EXPENSE') return sum - Number(tx.amount);
+                                      return sum;
+                                    }, 0);
 
                                     return (
                                       <div key={dateKey} className="bg-white/70">
@@ -656,7 +874,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-slate-900">Monthly Spending Budgets</h2>
-              <p className="text-xs text-slate-500">Track and cap expenses per category</p>
+              <p className="text-xs text-slate-500">Set a monthly limit for each category; spending updates automatically when you add expenses.</p>
             </div>
             <div className="flex items-center gap-3">
               <input
@@ -675,7 +893,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="divide-y divide-slate-200">
             {budgets.map((budget) => {
               const hasLimit = budget.monthly_limit !== null;
               const progress = hasLimit && budget.monthly_limit > 0
@@ -686,58 +904,72 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                 <form
                   key={budget.category_id}
                   onSubmit={(e) => handleSaveBudget(e, budget.category_id)}
-                  className="p-4 border border-slate-200 rounded-xl space-y-3"
+                  className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-4"
                 >
-                  <div className="flex items-center justify-between gap-3 text-xs font-bold">
-                    <span className="text-slate-900">{budget.category_name}</span>
-                    <label className="flex items-center gap-2 text-slate-500 font-medium">
-                      Limit
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
+                      <span className="font-bold text-slate-900">{budget.category_name}</span>
+                      <span className="text-slate-600">
+                        Spent {formatCurrency(budget.spent)}
+                        {hasLimit && (
+                          <span className="text-slate-400"> of {formatCurrency(budget.monthly_limit)}</span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-full bg-slate-100 rounded-full h-2" role="progressbar" aria-valuenow={progress} aria-valuemin="0" aria-valuemax="100">
+                        <div
+                          className={`h-2 rounded-full ${overBudget ? 'bg-red-600' : 'bg-emerald-600'}`}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <span className={`shrink-0 text-[11px] font-semibold ${overBudget ? 'text-red-700' : 'text-emerald-700'}`}>
+                        {!hasLimit
+                          ? 'No limit'
+                          : budget.monthly_limit > 0
+                            ? `${Math.round((budget.spent / budget.monthly_limit) * 100)}% used`
+                            : '0 limit'}
+                      </span>
+                    </div>
+                    <p className={`text-[11px] ${overBudget ? 'font-semibold text-red-700' : 'text-slate-500'}`}>
+                      {!hasLimit
+                        ? 'Set a monthly limit to track this category.'
+                        : overBudget
+                          ? `Over budget by ${formatCurrency(Math.abs(budget.remaining))}`
+                          : `${formatCurrency(budget.remaining)} remaining`}
+                    </p>
+                  </div>
+                  <div className="flex items-end gap-2 sm:pl-4">
+                    <label className="space-y-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      Monthly limit
                       <input
                         type="number"
                         min="0"
                         step="0.01"
                         required
                         aria-label={`${budget.category_name} monthly limit`}
-                        placeholder="Set amount"
+                        placeholder="Enter amount"
                         value={budgetDrafts[budget.category_id] ?? ''}
                         onChange={(e) => setBudgetDrafts((prev) => ({
                           ...prev,
                           [budget.category_id]: e.target.value,
                         }))}
-                        className="w-28 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs text-slate-900"
+                        className="block w-36 px-2.5 py-2 border border-slate-300 rounded-lg text-xs normal-case tracking-normal text-slate-900"
                       />
                     </label>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2" role="progressbar" aria-valuenow={progress} aria-valuemin="0" aria-valuemax="100">
-                    <div
-                      className={`h-2 rounded-full ${overBudget ? 'bg-red-600' : 'bg-emerald-600'}`}
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between gap-2 text-[11px]">
-                    <span className="text-slate-600">Spent: {formatCurrency(budget.spent)}</span>
-                    <span className={`font-semibold ${overBudget ? 'text-red-700' : 'text-emerald-700'}`}>
-                      {!hasLimit
-                        ? 'No limit set'
-                        : overBudget
-                          ? `Over by ${formatCurrency(Math.abs(budget.remaining))}`
-                          : `Remaining: ${formatCurrency(budget.remaining)}`}
-                    </span>
-                  </div>
-                  <div className="flex justify-end">
                     <button
                       type="submit"
                       disabled={budgetsLoading}
-                      className="px-3 py-1.5 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white rounded-lg text-xs font-semibold"
+                      className="px-3 py-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white rounded-lg text-xs font-semibold"
                     >
-                      {hasLimit ? 'Update limit' : 'Set limit'}
+                      Save
                     </button>
                   </div>
                 </form>
               );
             })}
             {!budgetsLoading && budgets.length === 0 && (
-              <p className="col-span-full py-8 text-center text-sm text-slate-500">No expense categories found.</p>
+              <p className="py-8 text-center text-sm text-slate-500">No expense categories found.</p>
             )}
           </div>
         </div>
@@ -789,15 +1021,16 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 bg-emerald-50 rounded-xl">
               <span className="text-xs text-emerald-800 font-bold">Total Inflow</span>
-              <p className="text-2xl font-black text-emerald-900 mt-1">{formatCurrency(summary?.total_income || 0)}</p>
+              <p className="text-2xl font-black text-emerald-900 mt-1">{formatSummaryValue(summary?.total_income)}</p>
             </div>
             <div className="p-4 bg-red-50 rounded-xl">
               <span className="text-xs text-red-800 font-bold">Total Outflow</span>
-              <p className="text-2xl font-black text-red-900 mt-1">{formatCurrency(summary?.total_expense || 0)}</p>
+              <p className="text-2xl font-black text-red-900 mt-1">{formatSummaryValue(summary?.total_expense)}</p>
             </div>
             <div className="p-4 bg-blue-50 rounded-xl">
               <span className="text-xs text-blue-800 font-bold">Net Savings</span>
-              <p className="text-2xl font-black text-blue-900 mt-1">{formatCurrency(summary?.net_savings || 0)}</p>
+              <p className="text-2xl font-black text-blue-900 mt-1">{formatSummaryValue(summary?.net_savings)}</p>
+              <span className="text-[11px] text-blue-700">For selected dates; transfers excluded</span>
             </div>
           </div>
         </div>
@@ -807,11 +1040,15 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
         <div className="fixed inset-0 bg-slate-900/20 flex items-center justify-center p-4 z-[60]">
           <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl">
             <div className="text-center">
-              <h3 className="text-xl font-bold text-slate-900">Delete {deleteModal.type === 'transaction' ? 'transaction' : 'transactions'}?</h3>
+              <h3 className="text-xl font-bold text-slate-900">
+                {deleteModal.type === 'all' ? 'Delete all transactions?' : `Delete ${deleteModal.type === 'transaction' ? 'transaction' : 'transactions'}?`}
+              </h3>
               <p className="mt-3 text-sm text-slate-600">
                 {deleteModal.type === 'transaction'
                   ? 'This transaction will be permanently removed.'
-                  : `Delete all ${deleteModal.payload.length} transactions in this month?`}
+                  : deleteModal.type === 'month'
+                    ? `Delete all ${deleteModal.payload.length} transactions in this month?`
+                    : `Permanently delete all ${deleteModal.payload} transactions from Money? Account balances will be adjusted. This cannot be undone.`}
               </p>
             </div>
 
@@ -853,7 +1090,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                   <button
                     key={t}
                     type="button"
-                    onClick={() => setForm({ ...form, type: t })}
+                    onClick={() => setForm({ ...form, type: t, category_id: '', subcategory_id: '' })}
                     className={`flex-1 py-1.5 rounded-lg font-bold capitalize transition-all ${
                       form.type === t ? 'bg-emerald-800 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
@@ -864,7 +1101,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Amount (₹)</label>
+                <label className="block font-semibold text-slate-700 mb-1">Amount ({currencySymbol})</label>
                 <input
                   type="number"
                   step="any"
@@ -890,17 +1127,54 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Category</label>
+                  <div className="mb-1 flex items-center justify-between">
+                    <label className="block font-semibold text-slate-700">Category</label>
+                    {categoriesError && (
+                      <button
+                        type="button"
+                        onClick={retryFetchCategories}
+                        disabled={categoriesLoading}
+                        className="font-semibold text-emerald-800 hover:text-emerald-900 disabled:opacity-50"
+                      >
+                        {categoriesLoading ? 'Loading…' : 'Retry'}
+                      </button>
+                    )}
+                  </div>
                   <select
                     value={form.category_id}
                     onChange={(e) => setForm({ ...form, category_id: e.target.value, subcategory_id: '' })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 bg-white"
+                    disabled={categoriesLoading || Boolean(categoriesError)}
+                    aria-busy={categoriesLoading}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 bg-white disabled:cursor-wait disabled:opacity-70"
                   >
-                    <option value="">Select Category</option>
-                    {categories.filter(c => c.type === form.type).map(c => (
+                    <option value="">
+                      {categoriesLoading ? 'Loading categories…' : categoriesError ? 'Could not load categories' : 'Select Category'}
+                    </option>
+                    {transactionCategories.length === 0 && !categoriesLoading && !categoriesError && (
+                      <option value="" disabled>No {form.type.toLowerCase()} categories available</option>
+                    )}
+                    {transactionCategories.map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
+                  {categoriesLoading && (
+                    <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500" role="status">
+                      <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                      Loading categories…
+                    </div>
+                  )}
+                  {!categoriesLoading && !categoriesError && transactionCategories.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewCatForm((current) => ({ ...current, type: form.type }));
+                        setShowAddCategoryModal(true);
+                      }}
+                      className="mt-1 font-semibold text-emerald-800 hover:text-emerald-900"
+                    >
+                      + Add {form.type.toLowerCase()} category
+                    </button>
+                  )}
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Subcategory</label>
@@ -997,6 +1271,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                 >
                   <option value="EXPENSE">Expense</option>
                   <option value="INCOME">Income</option>
+                  <option value="TRANSFER">Transfer</option>
                 </select>
               </div>
 
@@ -1071,7 +1346,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                   </select>
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Initial Balance (₹)</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Initial Balance ({currencySymbol})</label>
                   <input
                     type="number"
                     step="any"

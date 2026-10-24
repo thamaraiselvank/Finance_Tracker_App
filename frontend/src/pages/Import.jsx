@@ -10,8 +10,10 @@ import {
   Download
 } from 'lucide-react';
 import api from '../services/api';
+import useCurrency from '../utils/useCurrency';
 
 export default function Import({ setActiveTab }) {
+  const { formatCurrency, currencySymbol } = useCurrency();
   const [file, setFile] = useState(null);
   const [parsing, setParsing] = useState(false);
   const [parsedData, setParsedData] = useState(null);
@@ -225,15 +227,15 @@ export default function Import({ setActiveTab }) {
                     <>
                       <th className="py-2.5 px-4">Stock</th>
                       <th className="py-2.5 px-4 text-right">Quantity</th>
-                      <th className="py-2.5 px-4 text-right">Buy Avg (₹)</th>
-                      <th className="py-2.5 px-4 text-right">Current Value (₹)</th>
+                      <th className="py-2.5 px-4 text-right">Buy Avg ({currencySymbol})</th>
+                      <th className="py-2.5 px-4 text-right">Current Value ({currencySymbol})</th>
                     </>
                   ) : (
                     <>
                       <th className="py-2.5 px-4">Date</th>
                       <th className="py-2.5 px-4">Category</th>
                       <th className="py-2.5 px-4">Type</th>
-                      <th className="py-2.5 px-4 text-right">Amount (₹)</th>
+                      <th className="py-2.5 px-4 text-right">Amount ({currencySymbol})</th>
                     </>
                   )}
                 </tr>
@@ -245,15 +247,15 @@ export default function Import({ setActiveTab }) {
                       <>
                         <td className="py-2.5 px-4 font-semibold text-slate-900">{row.name}</td>
                         <td className="py-2.5 px-4 text-right text-slate-700">{row.quantity}</td>
-                        <td className="py-2.5 px-4 text-right text-slate-700">₹{row.buy_price.toLocaleString('en-IN')}</td>
-                        <td className="py-2.5 px-4 text-right font-bold text-emerald-800">₹{row.current_value.toLocaleString('en-IN')}</td>
+                        <td className="py-2.5 px-4 text-right text-slate-700">{formatCurrency(row.buy_price)}</td>
+                        <td className="py-2.5 px-4 text-right font-bold text-emerald-800">{formatCurrency(row.current_value)}</td>
                       </>
                     ) : (
                       <>
                         <td className="py-2.5 px-4 font-medium text-slate-700">{row.date}</td>
                         <td className="py-2.5 px-4 font-semibold text-slate-900">{row.category ? `${row.category}${row.subcategory ? ` | ${row.subcategory}` : ''}` : (row.description || '—')}</td>
                         <td className="py-2.5 px-4"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${row.type === 'INCOME' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>{row.type}</span></td>
-                        <td className={`py-2.5 px-4 text-right font-bold ${row.type === 'INCOME' ? 'text-emerald-800' : 'text-slate-900'}`}>{row.type === 'INCOME' ? '+' : '-'}₹{row.amount.toLocaleString('en-IN')}</td>
+                        <td className={`py-2.5 px-4 text-right font-bold ${row.type === 'INCOME' ? 'text-emerald-800' : 'text-slate-900'}`}>{row.type === 'INCOME' ? '+' : '-'}{formatCurrency(row.amount)}</td>
                       </>
                     )}
                   </tr>

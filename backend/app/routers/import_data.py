@@ -1,7 +1,7 @@
 import datetime
 import json
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.core.database import execute_returning, fetch_all, fetch_one, get_db_connection
 from app.core.security import get_current_user_id
@@ -13,7 +13,7 @@ class BulkImportItem(BaseModel):
     date: str
     time: Optional[str] = None
     description: Optional[str] = None
-    amount: float
+    amount: float = Field(..., gt=0)
     type: str # INCOME or EXPENSE
     category: Optional[str] = None
     subcategory: Optional[str] = None
@@ -29,11 +29,11 @@ class BulkAssetImportItem(BaseModel):
     name: str
     asset_class: str = "EQUITY"
     sub_type: Optional[str] = "Stock"
-    invested_amount: float = 0
-    current_value: float = 0
-    quantity: float = 1
-    buy_price: float = 0
-    current_price: float = 0
+    invested_amount: float = Field(0, ge=0)
+    current_value: float = Field(0, ge=0)
+    quantity: float = Field(1, ge=0)
+    buy_price: float = Field(0, ge=0)
+    current_price: float = Field(0, ge=0)
     purchase_date: Optional[str] = None
     notes: Optional[str] = None
     meta_data: Optional[Dict[str, Any]] = None

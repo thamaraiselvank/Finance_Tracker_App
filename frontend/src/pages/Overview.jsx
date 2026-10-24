@@ -30,6 +30,7 @@ import {
   YAxis,
 } from 'recharts';
 import api from '../services/api';
+import useCurrency from '../utils/useCurrency';
 
 const COLORS = ['#0f766e', '#f59e0b', '#2563eb', '#e11d48', '#7c3aed', '#0891b2'];
 const TABS = [
@@ -40,6 +41,7 @@ const TABS = [
 ];
 
 export default function Overview({ hideAmounts, setActiveTab }) {
+  const { formatCurrency: formatAmount } = useCurrency();
   const [wealth, setWealth] = useState(null);
   const [txSummary, setTxSummary] = useState(null);
   const [health, setHealth] = useState(null);
@@ -86,11 +88,7 @@ export default function Overview({ hideAmounts, setActiveTab }) {
 
   const formatCurrency = (value) => {
     if (hideAmounts) return '••••••';
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0,
-    }).format(value ?? 0);
+    return formatAmount(value);
   };
 
   const allocationData = (wealth?.asset_classes || [])
@@ -106,7 +104,7 @@ export default function Overview({ hideAmounts, setActiveTab }) {
     : 0;
   const healthScore = Number(health?.overall_health_score || 0);
   const healthTone = healthScore >= 8 ? 'text-emerald-700' : healthScore >= 6 ? 'text-blue-700' : healthScore >= 4 ? 'text-amber-700' : 'text-rose-700';
-  const tooltipStyle = { background: '#fff', border: '1px solid #dbe3ea', borderRadius: '6px', color: '#0f172a' };
+  const tooltipStyle = { background: 'var(--panel-strong)', border: '1px solid var(--panel-border)', borderRadius: '6px', color: 'var(--text-primary)' };
 
   const Metric = ({ label, value, note, icon: Icon, tone = 'text-slate-700' }) => (
     <div className="min-w-0 border-l-2 border-slate-200 pl-3 first:border-0 first:pl-0">
@@ -206,7 +204,7 @@ export default function Overview({ hideAmounts, setActiveTab }) {
                 </div>
               </section>
 
-              <section className="rounded-md border border-slate-200 bg-[#f6f8f7] p-4 shadow-sm md:p-5">
+              <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm md:p-5">
                 <div className="mb-3 flex items-center justify-between">
                   <SectionHeading title="Four financial essentials" detail="Signals that keep your plan steady" />
                   <button onClick={() => setActiveView('essentials')} className="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-teal-800">Open <ChevronRight className="h-3.5 w-3.5" /></button>
@@ -254,7 +252,7 @@ export default function Overview({ hideAmounts, setActiveTab }) {
                   <div className="space-y-2">{(wealth?.asset_classes || []).map((asset, index) => <div key={asset.asset_class} className="flex items-center justify-between gap-3 border-b border-slate-100 py-2 last:border-0"><span className="flex min-w-0 items-center gap-2 text-xs capitalize text-slate-600"><i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />{asset.asset_class.replaceAll('_', ' ')}</span><span className="shrink-0 text-right text-xs font-semibold text-slate-800">{formatCurrency(asset.total_current_value)}<small className="ml-2 text-slate-500">{asset.allocation_percentage}%</small></span></div>)}</div>
                 </div> : <div className="grid min-h-64 place-items-center text-xs text-slate-500">Add an asset to see your allocation.</div>}
               </section>
-              <section className="rounded-md border border-slate-200 bg-[#f6f8f7] p-5 shadow-sm">
+              <section className="rounded-md border border-slate-200 bg-white p-5 shadow-sm">
                 <SectionHeading title="Balance sheet" detail="Assets, liabilities, and investment performance" />
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <div className="rounded-md bg-white p-3"><p className="text-[10px] text-slate-500">Net worth</p><p className="mt-1 text-lg font-bold text-teal-800">{formatCurrency(wealth?.net_worth)}</p></div>
@@ -275,7 +273,7 @@ export default function Overview({ hideAmounts, setActiveTab }) {
                 <div className="mt-4 grid grid-cols-3 gap-3">{cashflowData.map((item) => <div key={item.name} className="border-l-2 pl-3" style={{ borderColor: item.fill }}><p className="text-[10px] text-slate-500">{item.name}</p><p className="mt-1 truncate text-base font-bold text-slate-800">{formatCurrency(item.value)}</p></div>)}</div>
                 <div className="mt-4 h-[300px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={cashflowData} margin={{ top: 10, right: 16, left: 0, bottom: 8 }}><CartesianGrid vertical={false} stroke="#e8edf2" /><XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} /><Tooltip formatter={(value) => formatCurrency(value)} contentStyle={tooltipStyle} /><Bar dataKey="value" radius={[5, 5, 0, 0]}>{cashflowData.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}</Bar></BarChart></ResponsiveContainer></div>
               </section>
-              <section className="rounded-md border border-slate-200 bg-[#f6f8f7] p-5 shadow-sm">
+              <section className="rounded-md border border-slate-200 bg-white p-5 shadow-sm">
                 <SectionHeading title="Savings momentum" detail="A clear view of the amount you keep" action={<ArrowUpRight className="h-4 w-4 text-teal-700" />} />
                 <div className="mt-5 rounded-md bg-white p-4"><p className="text-[11px] text-slate-500">Net saved this month</p><p className="mt-1 text-2xl font-bold text-teal-800">{formatCurrency(txSummary?.net_savings)}</p><div className="mt-4 h-[130px]"><ResponsiveContainer width="100%" height="100%"><AreaChart data={cashflowData}><defs><linearGradient id="savingsFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0f766e" stopOpacity={0.25} /><stop offset="100%" stopColor="#0f766e" stopOpacity={0.02} /></linearGradient></defs><Area dataKey="value" type="monotone" stroke="#0f766e" strokeWidth={2} fill="url(#savingsFill)" /></AreaChart></ResponsiveContainer></div></div>
                 <div className="mt-3 flex items-start gap-2 rounded-md border border-teal-100 bg-teal-50 p-3 text-xs text-teal-900"><PiggyBank className="mt-0.5 h-4 w-4 shrink-0" /><span>Savings rate: <strong>{Number(health?.savings_rate_pct || 0).toFixed(1)}%</strong>. A steady habit matters more than a single month.</span></div>
@@ -304,7 +302,7 @@ export default function Overview({ hideAmounts, setActiveTab }) {
                   <button onClick={() => setActiveTab('insurance')} className="rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Review insurance</button>
                 </div>
               </section>
-              <section className="rounded-md border border-slate-200 bg-[#f6f8f7] p-5 shadow-sm">
+              <section className="rounded-md border border-slate-200 bg-white p-5 shadow-sm">
                 <SectionHeading title="Plan & next steps" detail="Goals and useful actions" action={<Target className="h-4 w-4 text-amber-700" />} />
                 <div className="mt-3 rounded-md bg-white p-3">
                   <div className="flex items-center justify-between text-xs"><span className="font-semibold text-slate-700">Goal progress</span><span className="font-bold text-teal-800">{goalProgress.toFixed(0)}%</span></div>

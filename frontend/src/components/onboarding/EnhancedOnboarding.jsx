@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import api from '../../services/api';
+import preventNegativeNumberInput from '../../utils/preventNegativeNumberInput';
+import useCurrency from '../../utils/useCurrency';
 
 export default function EnhancedOnboarding({ onComplete }) {
+  const { currencySymbol } = useCurrency();
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -72,7 +75,7 @@ export default function EnhancedOnboarding({ onComplete }) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
+    <div onChangeCapture={preventNegativeNumberInput} className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
@@ -135,7 +138,7 @@ export default function EnhancedOnboarding({ onComplete }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Monthly Income (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Monthly Income ({currencySymbol})</label>
                 <input
                   type="number"
                   value={formData.monthly_income}
@@ -170,7 +173,7 @@ export default function EnhancedOnboarding({ onComplete }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Current Savings (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Current Savings ({currencySymbol})</label>
                 <input
                   type="number"
                   value={formData.current_savings}
@@ -180,7 +183,7 @@ export default function EnhancedOnboarding({ onComplete }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Current Debt (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Current Debt ({currencySymbol})</label>
                 <input
                   type="number"
                   value={formData.current_debt}
@@ -190,7 +193,7 @@ export default function EnhancedOnboarding({ onComplete }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Monthly Debt Payments (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Monthly Debt Payments ({currencySymbol})</label>
                 <input
                   type="number"
                   value={formData.monthly_debt_payments}
@@ -220,7 +223,7 @@ export default function EnhancedOnboarding({ onComplete }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Life Insurance Coverage (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Life Insurance Coverage ({currencySymbol})</label>
                 <input
                   type="number"
                   value={formData.life_insurance_coverage}
@@ -232,7 +235,7 @@ export default function EnhancedOnboarding({ onComplete }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Health Insurance Coverage (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Health Insurance Coverage ({currencySymbol})</label>
                 <input
                   type="number"
                   value={formData.health_insurance_coverage}
@@ -285,7 +288,7 @@ export default function EnhancedOnboarding({ onComplete }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Current Investments (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Current Investments ({currencySymbol})</label>
                 <input
                   type="number"
                   value={formData.current_investments}

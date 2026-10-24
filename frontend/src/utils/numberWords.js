@@ -7,9 +7,31 @@ const underThousand = (value) => {
   return `${ones[Math.floor(value / 100)]} hundred${value % 100 ? ` ${underThousand(value % 100)}` : ''}`;
 };
 
-export function inrInWords(value) {
+export function inrInWords(value, currency = 'INR') {
   const amount = Math.round(Number(value) || 0);
-  if (amount === 0) return 'zero rupees';
+  const currencyNames = {
+    INR: 'rupees',
+    USD: 'dollars',
+    EUR: 'euros',
+    GBP: 'pounds',
+  };
+  const currencyName = currencyNames[currency] || currencyNames.INR;
+  if (amount === 0) return `zero ${currencyName}`;
+
+  if (currency !== 'INR') {
+    const parts = [];
+    const billion = Math.floor(amount / 1000000000);
+    const million = Math.floor((amount % 1000000000) / 1000000);
+    const thousand = Math.floor((amount % 1000000) / 1000);
+    const remainder = amount % 1000;
+
+    if (billion) parts.push(`${underThousand(billion)} billion`);
+    if (million) parts.push(`${underThousand(million)} million`);
+    if (thousand) parts.push(`${underThousand(thousand)} thousand`);
+    if (remainder) parts.push(underThousand(remainder));
+
+    return `${parts.join(' ')} ${currencyName}`;
+  }
 
   const parts = [];
   const crore = Math.floor(amount / 10000000);

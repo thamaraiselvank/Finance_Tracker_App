@@ -16,6 +16,7 @@ import {
   FileText
 } from 'lucide-react';
 import api from '../services/api';
+import useCurrency from '../utils/useCurrency';
 
 const ASSET_CLASSES = [
   { id: 'ALL', label: 'All Classes' },
@@ -28,6 +29,7 @@ const ASSET_CLASSES = [
 ];
 
 export default function Wealth({ hideAmounts }) {
+  const { formatCurrency: formatAmount, currencySymbol } = useCurrency();
   const [activeSubTab, setActiveSubTab] = useState('assets'); // 'assets', 'liabilities', 'networth', 'allocation'
   const [wealthSummary, setWealthSummary] = useState(null);
   const [liabilities, setLiabilities] = useState([]);
@@ -40,6 +42,7 @@ export default function Wealth({ hideAmounts }) {
   const [selectedLiabAmortization, setSelectedLiabAmortization] = useState(null);
   const [selectedAsset, setSelectedAsset] = useState(null);
   const [refreshingAssetId, setRefreshingAssetId] = useState(null);
+  const [refreshingAllPrices, setRefreshingAllPrices] = useState(false);
   const [assetPriceUpdatedAt, setAssetPriceUpdatedAt] = useState(null);
 
   // Asset Form State
@@ -87,12 +90,7 @@ export default function Wealth({ hideAmounts }) {
 
   const formatCurrency = (val) => {
     if (hideAmounts) return '••••••';
-    if (val === undefined || val === null) return '₹0';
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0
-    }).format(val);
+    return formatAmount(val);
   };
 
   const toggleClassExpand = (cls) => {
@@ -196,6 +194,25 @@ export default function Wealth({ hideAmounts }) {
     }
   };
 
+  const handleRefreshAllEquityPrices = async () => {
+    setRefreshingAllPrices(true);
+    try {
+      const response = await api.post('/assets/refresh-prices');
+      await fetchData();
+      const failures = response.data.failures || [];
+      if (failures.length) {
+        const details = failures.map((failure) => `${failure.asset}: ${failure.reason}`).join('\n');
+        alert(`${response.data.message}\n\nCould not refresh:\n${details}`);
+      } else {
+        alert(response.data.message);
+      }
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to refresh equity prices');
+    } finally {
+      setRefreshingAllPrices(false);
+    }
+  };
+
   const handleCreateLiability = async (e) => {
     e.preventDefault();
     try {
@@ -276,7 +293,18 @@ export default function Wealth({ hideAmounts }) {
             />
           </div>
           {activeSubTab === 'assets' ? (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {getAssetClassCount('EQUITY') > 0 && (
+                <button
+                  onClick={handleRefreshAllEquityPrices}
+                  disabled={refreshingAllPrices}
+                  className="px-3 py-2 border border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                  title="Refresh prices for all equity holdings"
+                >
+                  <RefreshCw className={`w-4 h-4 ${refreshingAllPrices ? 'animate-spin' : ''}`} />
+                  {refreshingAllPrices ? 'Refreshing…' : 'Refresh Prices'}
+                </button>
+              )}
               {totalAssetCount > 0 && (
                 <button
                   onClick={handleDeleteAllAssets}
@@ -336,7 +364,7 @@ export default function Wealth({ hideAmounts }) {
                 onClick={() => setSelectedClass(cls.id)}
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
                   selectedClass === cls.id
-                    ? 'bg-emerald-100 text-emerald-950 font-bold border border-emerald-300'
+                    ? 'wealth-class-filter-active font-bold'
                     : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
                 }`}
               >
@@ -435,6 +463,7 @@ export default function Wealth({ hideAmounts }) {
                               <th className="py-2.5 px-4">Sub Type</th>
                               <th className="py-2.5 px-4 text-right">Quantity</th>
                               <th className="py-2.5 px-4 text-right">Buy Price</th>
+                              <th className="py-2.5 px-4 text-right">Current Price</th>
                               <th className="py-2.5 px-4 text-right">Current Value</th>
                               <th className="py-2.5 px-4 text-right">P&L</th>
                               <th className="py-2.5 px-6 text-right">Actions</th>
@@ -451,6 +480,7 @@ export default function Wealth({ hideAmounts }) {
                                 <td className="py-3 px-4 text-slate-500">{item.sub_type || '-'}</td>
                                 <td className="py-3 px-4 text-right text-slate-700">{item.quantity}</td>
                                 <td className="py-3 px-4 text-right text-slate-700">{formatCurrency(item.buy_price || item.invested_amount)}</td>
+                                <td className="py-3 px-4 text-right text-slate-700">{item.current_price > 0 ? formatCurrency(item.current_price) : '—'}</td>
                                 <td className="py-3 px-4 text-right font-bold text-slate-900">{formatCurrency(item.current_value)}</td>
                                 <td className={`py-3 px-4 text-right font-semibold ${item.pnl >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
                                   {item.pnl >= 0 ? '+' : ''}{formatCurrency(item.pnl)} ({item.pnl_percentage}%)
@@ -666,7 +696,7 @@ export default function Wealth({ hideAmounts }) {
       {/* ADD ASSET MODAL */}
       {showAddAssetModal && (
         <div className="modal-overlay p-4 animate-in fade-in duration-150">
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-lg w-full shadow-2xl">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
               <h3 className="font-bold text-slate-900 text-sm">Add New Asset Holding</h3>
               <button onClick={() => setShowAddAssetModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -720,7 +750,7 @@ export default function Wealth({ hideAmounts }) {
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Buy Price per unit (₹)</label>
+                      <label className="block font-semibold text-slate-700 mb-1">Buy Price per unit ({currencySymbol})</label>
                       <input
                         type="number"
                         step="any"
@@ -731,7 +761,7 @@ export default function Wealth({ hideAmounts }) {
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Current Price / NAV (₹)</label>
+                      <label className="block font-semibold text-slate-700 mb-1">Current Price / NAV ({currencySymbol})</label>
                       <input
                         type="number"
                         step="any"
@@ -755,7 +785,7 @@ export default function Wealth({ hideAmounts }) {
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Total Current Value (₹)</label>
+                      <label className="block font-semibold text-slate-700 mb-1">Total Current Value ({currencySymbol})</label>
                       <input
                         type="number"
                         step="any"
@@ -774,7 +804,7 @@ export default function Wealth({ hideAmounts }) {
                 </>
               ) : assetForm.asset_class === 'CASH_EQUIVALENT' ? (
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Current Balance / Value (₹)</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Current Balance / Value ({currencySymbol})</label>
                   <input
                     type="number"
                     step="any"
@@ -788,7 +818,7 @@ export default function Wealth({ hideAmounts }) {
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Total Invested Amount (₹)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Total Invested Amount ({currencySymbol})</label>
                     <input
                       type="number"
                       step="any"
@@ -799,7 +829,7 @@ export default function Wealth({ hideAmounts }) {
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Total Current Value (₹)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Total Current Value ({currencySymbol})</label>
                     <input
                       type="number"
                       step="any"
@@ -836,7 +866,7 @@ export default function Wealth({ hideAmounts }) {
       {/* ADD LIABILITY MODAL */}
       {showAddLiabModal && (
         <div className="modal-overlay p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-lg w-full shadow-2xl">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
               <h3 className="font-bold text-slate-900 text-sm">Add New Loan / Liability</h3>
               <button onClick={() => setShowAddLiabModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -888,7 +918,7 @@ export default function Wealth({ hideAmounts }) {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Principal Amount (₹)</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Principal Amount ({currencySymbol})</label>
                   <input
                     type="number"
                     required
@@ -899,7 +929,7 @@ export default function Wealth({ hideAmounts }) {
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Current Outstanding (₹)</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Current Outstanding ({currencySymbol})</label>
                   <input
                     type="number"
                     placeholder="e.g. 2200000"

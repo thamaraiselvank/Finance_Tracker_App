@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { User, Mail, Briefcase, Landmark, PiggyBank, Shield, Heart, Save, PencilLine, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { inrInWords } from '../utils/numberWords';
+import { formatCurrency, getCurrencySymbol } from '../utils/currency';
 
 export default function Profile() {
   const { user, updateProfile } = useAuth();
@@ -21,6 +22,7 @@ export default function Profile() {
     dependents_count: 0,
     is_onboarded: true,
   });
+  const currencySymbol = getCurrencySymbol(form.currency);
 
   useEffect(() => {
     if (user) {
@@ -46,9 +48,9 @@ export default function Profile() {
     { label: 'Email', value: user?.email || 'Not available', icon: Mail },
     { label: 'Username', value: user?.username || 'Not available', icon: Briefcase },
     { label: 'Currency', value: user?.currency || 'INR', icon: Landmark },
-    { label: 'Monthly income', value: `₹${Number(user?.monthly_income || 0).toLocaleString('en-IN')}`, icon: PiggyBank },
-    { label: 'Monthly expense', value: `₹${Number(user?.monthly_expense || 0).toLocaleString('en-IN')}`, icon: Briefcase },
-    { label: 'Emergency fund', value: `₹${Number(user?.emergency_fund_amount || 0).toLocaleString('en-IN')}`, icon: Shield },
+    { label: 'Monthly income', value: formatCurrency(user?.monthly_income, user?.currency), icon: PiggyBank },
+    { label: 'Monthly expense', value: formatCurrency(user?.monthly_expense, user?.currency), icon: Briefcase },
+    { label: 'Emergency fund', value: formatCurrency(user?.emergency_fund_amount, user?.currency), icon: Shield },
     { label: 'Dependents', value: `${user?.dependents_count || 0} people`, icon: Heart },
   ], [user]);
 
@@ -186,7 +188,7 @@ export default function Profile() {
             </label>
 
             <label className="space-y-1.5">
-              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Monthly income</span>
+              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Monthly income ({currencySymbol})</span>
               <input
                 disabled={!isEditing}
                 type="number"
@@ -194,11 +196,11 @@ export default function Profile() {
                 onChange={(e) => handleChange('monthly_income', e.target.value)}
                 className="theme-input w-full"
               />
-              <span className="block text-xs text-slate-400">{inrInWords(form.monthly_income)}</span>
+              <span className="block text-xs text-slate-400">{inrInWords(form.monthly_income, form.currency)}</span>
             </label>
 
             <label className="space-y-1.5">
-              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Monthly expense</span>
+              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Monthly expense ({currencySymbol})</span>
               <input
                 disabled={!isEditing}
                 type="number"
@@ -206,7 +208,7 @@ export default function Profile() {
                 onChange={(e) => handleChange('monthly_expense', e.target.value)}
                 className="theme-input w-full"
               />
-              <span className="block text-xs text-slate-400">{inrInWords(form.monthly_expense)}</span>
+              <span className="block text-xs text-slate-400">{inrInWords(form.monthly_expense, form.currency)}</span>
             </label>
 
             <label className="space-y-1.5">
@@ -221,7 +223,7 @@ export default function Profile() {
             </label>
 
             <label className="space-y-1.5">
-              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Emergency fund</span>
+              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Emergency fund ({currencySymbol})</span>
               <input
                 disabled={!isEditing}
                 type="number"
@@ -229,7 +231,7 @@ export default function Profile() {
                 onChange={(e) => handleChange('emergency_fund_amount', e.target.value)}
                 className="theme-input w-full"
               />
-              <span className="block text-xs text-slate-400">{inrInWords(form.emergency_fund_amount)}</span>
+              <span className="block text-xs text-slate-400">{inrInWords(form.emergency_fund_amount, form.currency)}</span>
             </label>
 
             <label className="space-y-1.5">

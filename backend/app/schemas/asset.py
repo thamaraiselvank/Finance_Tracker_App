@@ -9,9 +9,9 @@ class AssetBase(BaseModel):
     sub_type: Optional[str] = None
     invested_amount: float = Field(0.0, ge=0)
     current_value: float = Field(..., ge=0)
-    quantity: Optional[float] = 1.0
-    buy_price: Optional[float] = 0.0
-    current_price: Optional[float] = 0.0
+    quantity: Optional[float] = Field(1.0, ge=0)
+    buy_price: Optional[float] = Field(0.0, ge=0)
+    current_price: Optional[float] = Field(0.0, ge=0)
     purchase_date: Optional[datetime.date] = None
     notes: Optional[str] = None
     meta_data: Optional[Dict[str, Any]] = {}
@@ -23,11 +23,11 @@ class AssetUpdate(BaseModel):
     name: Optional[str] = None
     asset_class: Optional[str] = None
     sub_type: Optional[str] = None
-    invested_amount: Optional[float] = None
-    current_value: Optional[float] = None
-    quantity: Optional[float] = None
-    buy_price: Optional[float] = None
-    current_price: Optional[float] = None
+    invested_amount: Optional[float] = Field(None, ge=0)
+    current_value: Optional[float] = Field(None, ge=0)
+    quantity: Optional[float] = Field(None, ge=0)
+    buy_price: Optional[float] = Field(None, ge=0)
+    current_price: Optional[float] = Field(None, ge=0)
     purchase_date: Optional[datetime.date] = None
     notes: Optional[str] = None
     meta_data: Optional[Dict[str, Any]] = None

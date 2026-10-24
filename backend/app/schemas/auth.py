@@ -9,12 +9,12 @@ class UserRegister(BaseModel):
     password: str = Field(..., min_length=6)
     full_name: Optional[str] = None
     currency: Optional[str] = "INR"
-    current_age: Optional[int] = 28
-    target_retirement_age: Optional[int] = 50
-    monthly_income: Optional[float] = 0.0
-    monthly_expense: Optional[float] = 0.0
-    target_savings_rate: Optional[float] = 30.0
-    emergency_fund_amount: Optional[float] = 0.0
+    current_age: Optional[int] = Field(28, ge=0)
+    target_retirement_age: Optional[int] = Field(50, ge=0)
+    monthly_income: Optional[float] = Field(0.0, ge=0)
+    monthly_expense: Optional[float] = Field(0.0, ge=0)
+    target_savings_rate: Optional[float] = Field(30.0, ge=0)
+    emergency_fund_amount: Optional[float] = Field(0.0, ge=0)
     health_dependents: Optional[List[dict[str, Any]]] = []
 
 class UserLogin(BaseModel):
@@ -34,13 +34,13 @@ class RefreshTokenRequest(BaseModel):
 class UserProfileUpdate(BaseModel):
     full_name: Optional[str] = None
     currency: Optional[str] = None
-    current_age: Optional[int] = None
-    target_retirement_age: Optional[int] = None
-    monthly_income: Optional[float] = None
-    monthly_expense: Optional[float] = None
-    target_savings_rate: Optional[float] = None
-    emergency_fund_amount: Optional[float] = None
-    dependents_count: Optional[int] = None
+    current_age: Optional[int] = Field(None, ge=0)
+    target_retirement_age: Optional[int] = Field(None, ge=0)
+    monthly_income: Optional[float] = Field(None, ge=0)
+    monthly_expense: Optional[float] = Field(None, ge=0)
+    target_savings_rate: Optional[float] = Field(None, ge=0)
+    emergency_fund_amount: Optional[float] = Field(None, ge=0)
+    dependents_count: Optional[int] = Field(None, ge=0)
     health_dependents: Optional[List[dict[str, Any]]] = None
     is_onboarded: Optional[bool] = None
 

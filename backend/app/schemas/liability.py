@@ -10,7 +10,7 @@ class LiabilityBase(BaseModel):
     current_outstanding: float = Field(..., ge=0)
     interest_rate_pct: float = Field(..., ge=0)
     tenure_months: int = Field(..., gt=0)
-    emi_amount: Optional[float] = 0.0
+    emi_amount: Optional[float] = Field(0.0, ge=0)
     start_date: Optional[datetime.date] = None
     lender: Optional[str] = None
     notes: Optional[str] = None
@@ -21,11 +21,11 @@ class LiabilityCreate(LiabilityBase):
 class LiabilityUpdate(BaseModel):
     name: Optional[str] = None
     liability_type: Optional[str] = None
-    principal_amount: Optional[float] = None
-    current_outstanding: Optional[float] = None
-    interest_rate_pct: Optional[float] = None
-    tenure_months: Optional[int] = None
-    emi_amount: Optional[float] = None
+    principal_amount: Optional[float] = Field(None, ge=0)
+    current_outstanding: Optional[float] = Field(None, ge=0)
+    interest_rate_pct: Optional[float] = Field(None, ge=0)
+    tenure_months: Optional[int] = Field(None, gt=0)
+    emi_amount: Optional[float] = Field(None, ge=0)
     start_date: Optional[datetime.date] = None
     lender: Optional[str] = None
     notes: Optional[str] = None

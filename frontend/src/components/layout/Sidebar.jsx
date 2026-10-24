@@ -34,7 +34,8 @@ export default function Sidebar({ activeTab, setActiveTab, collapsed, setCollaps
   ];
 
   return (
-    <aside className={`${collapsed ? 'w-20' : 'w-64'} sidebar-shell transition-all duration-300 flex flex-col justify-between h-screen sticky top-0 select-none`}>
+    <>
+    <aside className={`${collapsed ? 'w-20' : 'w-64'} sidebar-shell transition-all duration-300 hidden lg:flex lg:flex-none flex-col justify-between h-screen sticky top-0 select-none`}>
       <div>
         <div className={`flex items-center ${collapsed ? 'justify-center px-2' : 'justify-between px-4'} py-5`}>
           <div className={`flex items-center gap-2.5 ${collapsed ? 'justify-center' : ''}`}>
@@ -136,5 +137,29 @@ export default function Sidebar({ activeTab, setActiveTab, collapsed, setCollaps
 
       <div className="p-3" />
     </aside>
+    <nav
+      aria-label="Main navigation"
+      className="mobile-bottom-nav fixed inset-x-0 bottom-0 z-40 flex lg:hidden overflow-x-auto border-t select-none"
+    >
+      {[...mainNavItems, ...toolNavItems].map((item) => {
+        const Icon = item.icon;
+        const isActive = activeTab === item.id;
+        return (
+          <button
+            key={item.id}
+            onClick={() => setActiveTab(item.id)}
+            aria-current={isActive ? 'page' : undefined}
+            title={item.label}
+            className={`flex min-w-[62px] flex-1 flex-col items-center justify-center gap-1 px-1 py-2 text-[9px] font-semibold ${
+              isActive ? 'text-violet-500' : 'text-slate-500'
+            }`}
+          >
+            <Icon className="h-[18px] w-[18px]" />
+            <span className="max-w-full truncate">{item.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+    </>
   );
 }

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Target, TrendingUp, Calendar, AlertCircle, CheckCircle2, Trash2, Pencil } from 'lucide-react';
 import api from '../services/api';
 import { inrInWords } from '../utils/numberWords';
+import useCurrency from '../utils/useCurrency';
 
 const emptyGoal = {
     goal_name: '',
@@ -15,6 +16,7 @@ const emptyGoal = {
   };
 
 export default function GoalsPage() {
+  const { currency, currencySymbol, formatCurrency } = useCurrency();
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -171,7 +173,6 @@ export default function GoalsPage() {
     return `Set aside ${formatCurrency(metrics.requiredMonthly)} per month to reach this goal by the target date.`;
   };
 
-  const formatCurrency = (amount) => `₹${Number(amount || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
   const getRequiredMonthlySavings = (goal) => {
     const remainingAmount = Math.max((goal.target_amount || 0) - (goal.current_amount || 0), 0);
@@ -368,11 +369,11 @@ export default function GoalsPage() {
 
       {/* Create Goal Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-xl p-8 max-w-md w-full border border-slate-700">
-            <h2 className="text-3xl font-bold text-white mb-6">{editingGoal ? 'Edit Goal' : 'Create New Goal'}</h2>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-xl p-6 md:p-8 max-w-3xl w-full border border-slate-700 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold text-white mb-6">{editingGoal ? 'Edit Goal' : 'Create New Goal'}</h2>
 
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">Goal Name</label>
                 <input
@@ -404,7 +405,7 @@ export default function GoalsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Target Amount (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Target Amount ({currencySymbol})</label>
                 <input
                   type="number"
                   value={newGoal.target_amount}
@@ -412,11 +413,11 @@ export default function GoalsPage() {
                   placeholder="0"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newGoal.target_amount)}</p>
+                <p className="text-xs text-slate-400 mt-1">{inrInWords(newGoal.target_amount, currency)}</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Already Saved (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Already Saved ({currencySymbol})</label>
                 <input
                   type="number"
                   min="0"
@@ -425,7 +426,7 @@ export default function GoalsPage() {
                   placeholder="0"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newGoal.current_amount)}</p>
+                <p className="text-xs text-slate-400 mt-1">{inrInWords(newGoal.current_amount, currency)}</p>
               </div>
 
               <div>
@@ -446,6 +447,27 @@ export default function GoalsPage() {
                   max="5"
                   value={newGoal.priority}
                   onChange={(e) => setNewGoal({...newGoal, priority: e.target.value === '' ? 3 : Number(e.target.value)})}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Monthly Savings Allocation ({currencySymbol})</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={newGoal.allocated_monthly_savings}
+                  onChange={(e) => setNewGoal({...newGoal, allocated_monthly_savings: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value))})}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-slate-300 mb-1">Description</label>
+                <textarea
+                  value={newGoal.description}
+                  onChange={(e) => setNewGoal({...newGoal, description: e.target.value})}
+                  rows="2"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
               </div>

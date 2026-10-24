@@ -24,18 +24,18 @@ export default function Navbar({ hideAmounts, setHideAmounts, activeTab, setActi
   return (
     <header className="sticky top-0 z-30 app-navbar backdrop-blur-xl border-b">
       {/* Main Navbar */}
-      <div className="px-6 py-3 flex items-center justify-between">
+      <div className="px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-3">
-          <div className="md:hidden font-bold text-lg font-display">
+          <div className="lg:hidden font-bold text-lg font-display">
             <span className="aurora-text">Fin</span><span className="brand-tail">verse</span><span className="text-cyan-400">.</span>
           </div>
-          <div className="text-sm font-medium text-slate-400 capitalize">
+          <div className="hidden sm:block text-sm font-medium text-slate-400 capitalize">
             {activeTab}
           </div>
         </div>
 
         {/* Right Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1 sm:gap-3">
           {/* Privacy Toggle (Hide Amounts) */}
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -76,10 +76,10 @@ export default function Navbar({ hideAmounts, setHideAmounts, activeTab, setActi
               <div className="w-7 h-7 rounded-full aurora-gradient text-white font-bold text-xs flex items-center justify-center shadow-md">
                 {getInitials(user?.full_name || user?.username)}
               </div>
-              <span className="text-xs font-semibold text-slate-200 max-w-[120px] truncate">
+              <span className="hidden sm:block text-xs font-semibold text-slate-200 max-w-[120px] truncate">
                 {user?.full_name || user?.username || 'User'}
               </span>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+              <ChevronDown className="hidden sm:block w-3.5 h-3.5 text-slate-500" />
             </button>
 
             {/* Dropdown Menu */}

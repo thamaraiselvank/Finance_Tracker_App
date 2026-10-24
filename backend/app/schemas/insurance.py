@@ -10,7 +10,7 @@ class InsuranceBase(BaseModel):
     annual_premium: float = Field(0.0, ge=0)
     policy_start_date: Optional[datetime.date] = None
     renewal_date: Optional[datetime.date] = None
-    dependents_covered: Optional[int] = 0
+    dependents_covered: Optional[int] = Field(0, ge=0)
     insurer_name: Optional[str] = None
     is_active: Optional[bool] = True
     notes: Optional[str] = None
@@ -21,11 +21,11 @@ class InsuranceCreate(InsuranceBase):
 class InsuranceUpdate(BaseModel):
     policy_name: Optional[str] = None
     insurance_type: Optional[str] = None
-    sum_insured: Optional[float] = None
-    annual_premium: Optional[float] = None
+    sum_insured: Optional[float] = Field(None, ge=0)
+    annual_premium: Optional[float] = Field(None, ge=0)
     policy_start_date: Optional[datetime.date] = None
     renewal_date: Optional[datetime.date] = None
-    dependents_covered: Optional[int] = None
+    dependents_covered: Optional[int] = Field(None, ge=0)
     insurer_name: Optional[str] = None
     is_active: Optional[bool] = None
     notes: Optional[str] = None

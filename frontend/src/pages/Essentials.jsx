@@ -16,9 +16,11 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import useCurrency from '../utils/useCurrency';
 
 export default function Essentials({ hideAmounts }) {
   const { user, updateProfile } = useAuth();
+  const { formatCurrency: formatAmount } = useCurrency();
   const [healthData, setHealthData] = useState(null);
   const [insurances, setInsurances] = useState([]);
   const [editingTerm, setEditingTerm] = useState(false);
@@ -62,11 +64,7 @@ export default function Essentials({ hideAmounts }) {
 
   const formatCurrency = (val) => {
     if (hideAmounts) return '••••••';
-    if (val === undefined || val === null) return '₹0';
-    if (val >= 10000000) return `₹${(val / 10000000).toFixed(2)}Cr`;
-    if (val >= 100000) return `₹${(val / 100000).toFixed(2)}L`;
-    if (val >= 1000) return `₹${(val / 1000).toFixed(0)}K`;
-    return `₹${Math.round(val)}`;
+    return formatAmount(val);
   };
 
   const handleUpdateInsuranceCover = async (type, amount) => {
@@ -487,7 +485,7 @@ export default function Essentials({ hideAmounts }) {
           </div>
 
           <p className="text-xs text-slate-600 font-medium pt-2 border-t border-slate-100">
-            Minimum ₹5L private health cover is recommended.
+            A minimum private health cover of {formatCurrency(500000)} is recommended.
           </p>
         </div>
       </div>

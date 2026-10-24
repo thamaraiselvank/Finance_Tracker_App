@@ -1,6 +1,8 @@
 import json
 import datetime
+import logging
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Optional
 from app.core.database import fetch_all, fetch_one, execute_returning, execute_query
@@ -14,6 +16,7 @@ from app.schemas.asset import (
 )
 
 router = APIRouter(prefix="/assets", tags=["Assets & Wealth"])
+logger = logging.getLogger(__name__)
 
 def hydrate_asset(asset: dict) -> dict:
     inv = float(asset.get("invested_amount") or 0.0)
@@ -177,14 +180,7 @@ def update_asset(asset_id: str, payload: AssetUpdate, user_id: str = Depends(get
     """, tuple(params))
     return hydrate_asset(updated)
 
-@router.post("/{asset_id}/refresh-price", response_model=AssetOut)
-def refresh_asset_price(asset_id: str, user_id: str = Depends(get_current_user_id)):
-    asset = fetch_one("SELECT * FROM assets WHERE id = %s AND user_id = %s", (asset_id, user_id))
-    if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found.")
-    if asset.get("asset_class") not in {"EQUITY", "MUTUAL_FUND", "CRYPTO"}:
-        raise HTTPException(status_code=400, detail="Live prices are not available for this asset type.")
-
+def refresh_asset_quote(asset: dict, user_id: str) -> dict:
     meta_data = asset.get("meta_data") or {}
     if isinstance(meta_data, str):
         try:
@@ -216,7 +212,7 @@ def refresh_asset_price(asset_id: str, user_id: str = Depends(get_current_user_i
             continue
 
     if not quote:
-        raise HTTPException(status_code=502, detail=last_error)
+        raise ValueError(last_error)
 
     meta = quote["meta"]
     current_price = round(float(meta["regularMarketPrice"]), 2)
@@ -232,10 +228,65 @@ def refresh_asset_price(asset_id: str, user_id: str = Depends(get_current_user_i
         SET current_price = %s, current_value = %s, updated_at = CURRENT_TIMESTAMP
         WHERE id = %s AND user_id = %s
         RETURNING *
-    """, (current_price, current_value, asset_id, user_id))
+    """, (current_price, current_value, asset["id"], user_id))
     hydrated = hydrate_asset(updated)
     hydrated["price_updated_at"] = price_updated_at
     return hydrated
+
+
+@router.post("/refresh-prices")
+def refresh_all_equity_prices(user_id: str = Depends(get_current_user_id)):
+    assets = fetch_all(
+        "SELECT * FROM assets WHERE user_id = %s AND asset_class = 'EQUITY'",
+        (user_id,)
+    )
+    if not assets:
+        return {
+            "updated_count": 0,
+            "failed_count": 0,
+            "message": "No equity holdings to refresh.",
+            "failures": [],
+        }
+
+    failures = []
+    updated_count = 0
+    with ThreadPoolExecutor(max_workers=min(5, len(assets))) as executor:
+        futures = {
+            executor.submit(refresh_asset_quote, asset, user_id): asset
+            for asset in assets
+        }
+        for future in as_completed(futures):
+            asset = futures[future]
+            try:
+                future.result()
+                updated_count += 1
+            except ValueError as error:
+                failures.append({"asset": asset["name"], "reason": str(error)})
+            except Exception as error:
+                logger.exception("Unexpected price refresh failure for asset %s.", asset["id"])
+                failures.append({"asset": asset["name"], "reason": f"Unexpected refresh error: {error}"})
+
+    return {
+        "updated_count": updated_count,
+        "failed_count": len(failures),
+        "message": f"Updated prices for {updated_count} of {len(assets)} equity holdings.",
+        "failures": failures,
+    }
+
+
+@router.post("/{asset_id}/refresh-price", response_model=AssetOut)
+def refresh_asset_price(asset_id: str, user_id: str = Depends(get_current_user_id)):
+    asset = fetch_one("SELECT * FROM assets WHERE id = %s AND user_id = %s", (asset_id, user_id))
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    if asset.get("asset_class") not in {"EQUITY", "MUTUAL_FUND", "CRYPTO"}:
+        raise HTTPException(status_code=400, detail="Live prices are not available for this asset type.")
+
+    try:
+        return refresh_asset_quote(asset, user_id)
+    except ValueError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
 
 @router.delete("/all")
 def delete_all_assets(user_id: str = Depends(get_current_user_id)):

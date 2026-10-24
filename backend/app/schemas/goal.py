@@ -19,13 +19,13 @@ class GoalCreate(GoalBase):
 class GoalUpdate(BaseModel):
     goal_name: Optional[str] = None
     goal_type: Optional[str] = None
-    target_amount: Optional[float] = None
+    target_amount: Optional[float] = Field(None, gt=0)
     target_date: Optional[datetime.date] = None
-    priority: Optional[int] = None
+    priority: Optional[int] = Field(None, ge=1, le=5)
     description: Optional[str] = None
     status: Optional[str] = None
-    allocated_monthly_savings: Optional[float] = None
-    current_amount: Optional[float] = None
+    allocated_monthly_savings: Optional[float] = Field(None, ge=0)
+    current_amount: Optional[float] = Field(None, ge=0)
 
 class GoalOut(GoalBase):
     id: UUID | str

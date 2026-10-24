@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, CreditCard, TrendingDown, AlertCircle, Zap } from 'lucide-react';
+import { Plus, CreditCard, TrendingDown, AlertCircle, Zap, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { inrInWords } from '../utils/numberWords';
+import useCurrency from '../utils/useCurrency';
 
 const emptyDebt = {
     debt_name: '',
@@ -15,6 +16,7 @@ const emptyDebt = {
   };
 
 export default function DebtsPage() {
+  const { currency, formatCurrency, currencySymbol } = useCurrency();
   const [debts, setDebts] = useState([]);
   const [summary, setSummary] = useState(null);
   const [strategy, setStrategy] = useState(null);
@@ -82,6 +84,13 @@ export default function DebtsPage() {
     setShowModal(true);
   };
 
+  const updateNonNegativeNumber = (field, value) => {
+    setNewDebt((current) => ({
+      ...current,
+      [field]: value === '' ? 0 : Math.max(0, Number(value) || 0),
+    }));
+  };
+
   const handleSaveDebt = async () => {
     const payload = {
       debt_name: newDebt.debt_name.trim(),
@@ -113,6 +122,17 @@ export default function DebtsPage() {
       fetchSummary();
     } catch (error) {
       console.error('Error saving debt:', error);
+    }
+  };
+
+  const handleDeleteDebt = async (debt) => {
+    if (!window.confirm(`Delete "${debt.debt_name}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/debts/${debt.id}`);
+      await Promise.all([fetchDebts(), fetchSummary()]);
+    } catch (error) {
+      console.error('Error deleting debt:', error);
+      alert('Unable to delete this debt. Please try again.');
     }
   };
 
@@ -163,11 +183,11 @@ export default function DebtsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Total Debt</p>
-            <p className="text-3xl font-bold text-red-400">₹{(summary.total_outstanding || 0).toLocaleString()}</p>
+            <p className="text-3xl font-bold text-red-400">{formatCurrency(summary.total_outstanding)}</p>
           </div>
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Monthly EMI</p>
-            <p className="text-3xl font-bold text-orange-400">₹{(summary.total_monthly_emi || 0).toLocaleString()}</p>
+            <p className="text-3xl font-bold text-orange-400">{formatCurrency(summary.total_monthly_emi)}</p>
           </div>
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Avg Interest Rate</p>
@@ -230,7 +250,7 @@ export default function DebtsPage() {
             </p>
             {strategyType === 'avalanche' && strategy.total_interest_saved && (
               <p className="text-emerald-400">
-                <span className="font-semibold">Interest Saved:</span> ₹{strategy.total_interest_saved.toLocaleString()}
+                <span className="font-semibold">Interest Saved:</span> {formatCurrency(strategy.total_interest_saved)}
               </p>
             )}
             {strategy.recommended_order && strategy.recommended_order.length > 0 && (
@@ -251,7 +271,7 @@ export default function DebtsPage() {
       <div className="space-y-4">
         {debts && debts.length > 0 ? (
           debts.map(debt => (
-            <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 hover:border-slate-600 transition-all">
+            <div key={debt.id} className="bg-slate-800 rounded-lg p-6 border border-slate-700 hover:border-slate-600 transition-all">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-start gap-4">
                   <div className="text-4xl">{getDebtIcon(debt.debt_type)}</div>
@@ -262,12 +282,20 @@ export default function DebtsPage() {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
                     onClick={() => openEditDebt(debt)}
                     className="px-3 py-1.5 text-sm font-medium rounded-lg bg-slate-700 text-slate-200 hover:bg-slate-600 transition-all"
                   >
                     Edit
+                  </button>
+                  <button
+                    onClick={() => handleDeleteDebt(debt)}
+                    title="Delete debt"
+                    aria-label={`Delete ${debt.debt_name}`}
+                    className="grid h-8 w-8 place-items-center rounded-md border border-rose-400/15 bg-rose-500/[0.06] text-rose-300 transition hover:bg-rose-500/15"
+                  >
+                    <Trash2 size={14} />
                   </button>
                   {debt.interest_rate_pct > 12 && (
                   <div className="flex items-center gap-1 text-red-400 text-sm bg-red-500/10 px-2 py-1 rounded">
@@ -278,15 +306,15 @@ export default function DebtsPage() {
               </div>
 
               {/* Debt Details Grid */}
-              <div className="grid grid-cols-4 gap-4 py-4 border-t border-b border-slate-700">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 border-t border-b border-slate-700">
                 <div>
                   <p className="text-xs text-slate-400">Outstanding</p>
-                  <p className="text-lg font-bold text-white">₹{(debt.current_outstanding || 0).toLocaleString()}</p>
-                  <p className="text-xs text-slate-400">{inrInWords(debt.current_outstanding)}</p>
+                  <p className="text-lg font-bold text-white">{formatCurrency(debt.current_outstanding)}</p>
+                  <p className="text-xs text-slate-400">{inrInWords(debt.current_outstanding, currency)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-400">Monthly EMI</p>
-                  <p className="text-lg font-bold text-orange-400">₹{(debt.monthly_emi || 0).toLocaleString()}</p>
+                  <p className="text-lg font-bold text-orange-400">{formatCurrency(debt.monthly_emi)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-400">Interest Rate</p>
@@ -333,11 +361,11 @@ export default function DebtsPage() {
 
       {/* Create Debt Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-xl p-8 max-w-md w-full border border-slate-700 max-h-screen overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-xl p-6 md:p-8 max-w-3xl w-full border border-slate-700 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold text-white mb-6">{editingDebt ? 'Edit Debt' : 'Add New Debt'}</h2>
 
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">Debt Name</label>
                 <input
@@ -366,52 +394,55 @@ export default function DebtsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Original Principal (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Original Principal ({currencySymbol})</label>
                 <input
                   type="number"
                   min="0"
                   value={newDebt.principal_amount}
-                  onChange={(e) => setNewDebt({...newDebt, principal_amount: e.target.value === '' ? 0 : Number(e.target.value)})}
+                  onChange={(e) => updateNonNegativeNumber('principal_amount', e.target.value)}
                   placeholder="0"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newDebt.principal_amount)}</p>
+                <p className="text-xs text-slate-400 mt-1">{inrInWords(newDebt.principal_amount, currency)}</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Outstanding Amount (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Outstanding Amount ({currencySymbol})</label>
                 <input
                   type="number"
+                  min="0"
                   value={newDebt.current_outstanding}
-                  onChange={(e) => setNewDebt({...newDebt, current_outstanding: e.target.value === '' ? 0 : Number(e.target.value)})}
+                  onChange={(e) => updateNonNegativeNumber('current_outstanding', e.target.value)}
                   placeholder="0"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newDebt.current_outstanding)}</p>
+                <p className="text-xs text-slate-400 mt-1">{inrInWords(newDebt.current_outstanding, currency)}</p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">Interest Rate (%)</label>
                 <input
                   type="number"
+                  min="0"
                   step="0.1"
                   value={newDebt.interest_rate_pct}
-                  onChange={(e) => setNewDebt({...newDebt, interest_rate_pct: e.target.value === '' ? 0 : Number(e.target.value)})}
+                  onChange={(e) => updateNonNegativeNumber('interest_rate_pct', e.target.value)}
                   placeholder="0"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Monthly EMI (₹)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Monthly EMI ({currencySymbol})</label>
                 <input
                   type="number"
+                  min="0"
                   value={newDebt.monthly_emi}
-                  onChange={(e) => setNewDebt({...newDebt, monthly_emi: e.target.value === '' ? 0 : Number(e.target.value)})}
+                  onChange={(e) => updateNonNegativeNumber('monthly_emi', e.target.value)}
                   placeholder="0"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newDebt.monthly_emi)}</p>
+                <p className="text-xs text-slate-400 mt-1">{inrInWords(newDebt.monthly_emi, currency)}</p>
               </div>
 
               <div>

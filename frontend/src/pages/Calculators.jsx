@@ -25,10 +25,12 @@ import {
   Cell 
 } from 'recharts';
 import api from '../services/api';
+import useCurrency from '../utils/useCurrency';
 
 const PIE_COLORS = ['#10B981', '#EF4444'];
 
 export default function Calculators({ setActiveTab, hideAmounts }) {
+  const { formatCurrency: formatAmount, currencySymbol } = useCurrency();
   const [selectedCalc, setSelectedCalc] = useState(null); // 'fire', 'sip', 'lumpsum', 'cagr', 'xirr', 'emi', 'swp'
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -59,12 +61,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
 
   const formatCurrency = (val) => {
     if (hideAmounts) return '••••••';
-    if (val === undefined || val === null) return '₹0';
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0
-    }).format(val);
+    return formatAmount(val);
   };
 
   const handleRunCalc = async (type) => {
@@ -217,7 +214,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Current Monthly Living Expense (₹)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Current Monthly Living Expense ({currencySymbol})</label>
                     <input
                       type="number"
                       value={fireForm.monthly_expense}
@@ -227,7 +224,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Current Portfolio Value (₹)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Current Portfolio Value ({currencySymbol})</label>
                     <input
                       type="number"
                       value={fireForm.current_portfolio_value}
@@ -237,7 +234,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Existing Monthly Investment (₹)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Existing Monthly Investment ({currencySymbol})</label>
                     <input
                       type="number"
                       value={fireForm.existing_monthly_investment}
@@ -282,7 +279,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
               {selectedCalc === 'sip' && (
                 <div className="space-y-3 text-xs">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Monthly Investment (₹)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Monthly Investment ({currencySymbol})</label>
                     <input
                       type="number"
                       value={sipForm.monthly_investment}
@@ -326,7 +323,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
               {selectedCalc === 'emi' && (
                 <div className="space-y-3 text-xs">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Loan Amount (₹)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Loan Amount ({currencySymbol})</label>
                     <input
                       type="number"
                       value={emiForm.loan_amount}
@@ -362,7 +359,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
               {selectedCalc === 'lumpsum' && (
                 <div className="space-y-3 text-xs">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Total Investment (₹)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Total Investment ({currencySymbol})</label>
                     <input
                       type="number"
                       value={lumpForm.total_investment}
@@ -397,7 +394,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
               {selectedCalc === 'cagr' && (
                 <div className="space-y-3 text-xs">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Initial Value (₹)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Initial Value ({currencySymbol})</label>
                     <input
                       type="number"
                       value={cagrForm.initial_value}
@@ -406,7 +403,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Final Value (₹)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Final Value ({currencySymbol})</label>
                     <input
                       type="number"
                       value={cagrForm.final_value}
@@ -445,6 +442,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       />
                       <input
                         type="number"
+                        data-allow-negative="true"
                         value={cf.amount}
                         onChange={(e) => {
                           const updated = [...xirrCashflows];

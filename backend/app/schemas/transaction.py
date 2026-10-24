@@ -22,7 +22,7 @@ class TransactionUpdate(BaseModel):
     category_id: Optional[UUID | str] = None
     subcategory_id: Optional[UUID | str] = None
     type: Optional[str] = None
-    amount: Optional[float] = None
+    amount: Optional[float] = Field(None, gt=0)
     date: Optional[datetime.date] = None
     description: Optional[str] = None
     notes: Optional[str] = None

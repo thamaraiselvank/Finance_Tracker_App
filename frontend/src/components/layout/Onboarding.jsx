@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { ArrowRight, Sparkles, Coins, TrendingUp, Users, Target } from 'lucide-react';
 import { inrInWords } from '../../utils/numberWords';
+import { getCurrencySymbol } from '../../utils/currency';
+import preventNegativeNumberInput from '../../utils/preventNegativeNumberInput';
 
 export default function Onboarding() {
   const { updateProfile, user } = useAuth();
@@ -24,6 +26,7 @@ export default function Onboarding() {
     { code: 'EUR', symbol: '€', label: 'Euro' },
     { code: 'GBP', symbol: '£', label: 'British Pound' }
   ];
+  const currencySymbol = getCurrencySymbol(formData.currency);
 
   const handleNext = () => setStep(step + 1);
   const handlePrev = () => setStep(step - 1);
@@ -60,7 +63,7 @@ export default function Onboarding() {
         </div>
 
         {/* Content */}
-        <form onSubmit={step === 3 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }} className="p-8 flex-1">
+        <form onChangeCapture={preventNegativeNumberInput} onSubmit={step === 3 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }} className="p-8 flex-1">
           {step === 1 && (
             <div className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300">
               <div className="flex items-center gap-4 mb-6">
@@ -98,7 +101,7 @@ export default function Onboarding() {
                 <label className="block text-xs font-semibold text-slate-300 mb-2">Monthly Income (Post-tax)</label>
                 <div className="relative">
                   <span className="absolute left-4 top-3 text-slate-500 font-medium">
-                    {currencies.find(c => c.code === formData.currency)?.symbol}
+                    {currencySymbol}
                   </span>
                   <input
                     type="number"
@@ -110,17 +113,23 @@ export default function Onboarding() {
                     placeholder="e.g. 100000"
                   />
                 </div>
-                <p className="mt-1 text-xs text-slate-400">{inrInWords(formData.monthly_income)}</p>
+                <p className="mt-1 text-xs text-slate-400">{inrInWords(formData.monthly_income, formData.currency)}</p>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-2">Monthly Essential Expenses</label>
-                <input type="number" required min="0" value={formData.monthly_expense} onChange={e => setFormData({ ...formData, monthly_expense: Number(e.target.value) })} className="w-full px-4 py-3 text-sm glass-input font-medium" placeholder="e.g. 50000" />
-                <p className="mt-1 text-xs text-slate-400">{inrInWords(formData.monthly_expense)}</p>
+                <div className="relative">
+                  <span className="absolute left-4 top-3 text-slate-500 font-medium">{currencySymbol}</span>
+                  <input type="number" required min="0" value={formData.monthly_expense} onChange={e => setFormData({ ...formData, monthly_expense: Number(e.target.value) })} className="w-full pl-8 pr-4 py-3 text-sm glass-input font-medium" placeholder="e.g. 50000" />
+                </div>
+                <p className="mt-1 text-xs text-slate-400">{inrInWords(formData.monthly_expense, formData.currency)}</p>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-2">Current Emergency Fund</label>
-                <input type="number" required min="0" value={formData.emergency_fund_amount} onChange={e => setFormData({ ...formData, emergency_fund_amount: Number(e.target.value) })} className="w-full px-4 py-3 text-sm glass-input font-medium" placeholder="e.g. 300000" />
-                <p className="mt-1 text-xs text-slate-400">{inrInWords(formData.emergency_fund_amount)}</p>
+                <div className="relative">
+                  <span className="absolute left-4 top-3 text-slate-500 font-medium">{currencySymbol}</span>
+                  <input type="number" required min="0" value={formData.emergency_fund_amount} onChange={e => setFormData({ ...formData, emergency_fund_amount: Number(e.target.value) })} className="w-full pl-8 pr-4 py-3 text-sm glass-input font-medium" placeholder="e.g. 300000" />
+                </div>
+                <p className="mt-1 text-xs text-slate-400">{inrInWords(formData.emergency_fund_amount, formData.currency)}</p>
               </div>
             </div>
           )}
@@ -178,7 +187,7 @@ export default function Onboarding() {
                   <div className="text-right min-w-[80px]">
                     <div className="text-lg font-bold text-white">{formData.target_savings_rate}%</div>
                     <div className="text-xs text-aurora-400 font-medium">
-                      {currencies.find(c => c.code === formData.currency)?.symbol}
+                      {currencySymbol}
                       {((formData.monthly_income * formData.target_savings_rate) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo
                     </div>
                   </div>
