@@ -1,6 +1,6 @@
 
 steps:
-  # 1. Build the backend with commit-specific and latest tags.
+  # 1. Build backend image with commit SHA and latest tags.
   - id: build-backend
     name: gcr.io/cloud-builders/docker
     args:
@@ -11,7 +11,7 @@ steps:
       - asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-backend:latest
       - ./backend
 
-  # 2. Build the frontend.
+  # 2. Build frontend image with commit SHA and latest tags.
   - id: build-frontend
     name: gcr.io/cloud-builders/docker
     args:
@@ -50,7 +50,7 @@ steps:
       - push
       - asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-frontend:latest
 
-  # 7. Connect to GKE and deploy the backend.
+  # 7. Authenticate to GKE and deploy backend.
   - id: deploy-backend
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
     entrypoint: bash
@@ -70,7 +70,7 @@ steps:
 
         kubectl rollout status deployment/finance-tracker-backend --timeout=600s
 
-  # 8. Connect to GKE and deploy the frontend.
+  # 8. Authenticate to GKE and deploy frontend.
   - id: deploy-frontend
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
     entrypoint: bash
@@ -89,3 +89,6 @@ steps:
           frontend=asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-frontend:$SHORT_SHA
 
         kubectl rollout status deployment/finance-tracker-frontend --timeout=600s
+
+options:
+  logging: CLOUD_LOGGING_ONLY
