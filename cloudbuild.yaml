@@ -50,43 +50,53 @@ steps:
       - push
       - asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-frontend:latest
 
-  # 7. Authenticate to GKE and deploy backend.
+  # 7. Deploy backend to GKE.
   - id: deploy-backend
-    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
-    entrypoint: bash
+    name: gcr.io/cloud-builders/kubectl
+    env:
+      - CLOUDSDK_COMPUTE_REGION=asia-south1
+      - CLOUDSDK_CONTAINER_CLUSTER=finance-tracker-standard
     args:
-      - -c
-      - |
-        set -e
-        gcloud components install kubectl gke-gcloud-auth-plugin --quiet
+      - set
+      - image
+      - deployment/finance-tracker-backend
+      - backend=asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-backend:$SHORT_SHA
 
-        gcloud container clusters get-credentials finance-tracker-standard \
-          --region=asia-south1 \
-          --project=finance-tracker-app-512203
+  # 8. Wait for backend rollout.
+  - id: verify-backend
+    name: gcr.io/cloud-builders/kubectl
+    env:
+      - CLOUDSDK_COMPUTE_REGION=asia-south1
+      - CLOUDSDK_CONTAINER_CLUSTER=finance-tracker-standard
+    args:
+      - rollout
+      - status
+      - deployment/finance-tracker-backend
+      - --timeout=600s
 
-        kubectl set image deployment/finance-tracker-backend \
-          backend=asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-backend:$SHORT_SHA
-
-        kubectl rollout status deployment/finance-tracker-backend --timeout=600s
-
-  # 8. Authenticate to GKE and deploy frontend.
+  # 9. Deploy frontend after backend succeeds.
   - id: deploy-frontend
-    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
-    entrypoint: bash
+    name: gcr.io/cloud-builders/kubectl
+    env:
+      - CLOUDSDK_COMPUTE_REGION=asia-south1
+      - CLOUDSDK_CONTAINER_CLUSTER=finance-tracker-standard
     args:
-      - -c
-      - |
-        set -e
-        gcloud components install kubectl gke-gcloud-auth-plugin --quiet
+      - set
+      - image
+      - deployment/finance-tracker-frontend
+      - frontend=asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-frontend:$SHORT_SHA
 
-        gcloud container clusters get-credentials finance-tracker-standard \
-          --region=asia-south1 \
-          --project=finance-tracker-app-512203
-
-        kubectl set image deployment/finance-tracker-frontend \
-          frontend=asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-frontend:$SHORT_SHA
-
-        kubectl rollout status deployment/finance-tracker-frontend --timeout=600s
+  # 10. Wait for frontend rollout.
+  - id: verify-frontend
+    name: gcr.io/cloud-builders/kubectl
+    env:
+      - CLOUDSDK_COMPUTE_REGION=asia-south1
+      - CLOUDSDK_CONTAINER_CLUSTER=finance-tracker-standard
+    args:
+      - rollout
+      - status
+      - deployment/finance-tracker-frontend
+      - --timeout=600s
 
 images:
   - asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-backend:$SHORT_SHA
