@@ -58,8 +58,7 @@ steps:
       - -c
       - |
         set -e
-        apt-get update
-        apt-get install -y kubectl google-cloud-cli-gke-gcloud-auth-plugin
+        gcloud components install kubectl gke-gcloud-auth-plugin --quiet
 
         gcloud container clusters get-credentials finance-tracker-standard \
           --region=asia-south1 \
@@ -78,8 +77,7 @@ steps:
       - -c
       - |
         set -e
-        apt-get update
-        apt-get install -y kubectl google-cloud-cli-gke-gcloud-auth-plugin
+        gcloud components install kubectl gke-gcloud-auth-plugin --quiet
 
         gcloud container clusters get-credentials finance-tracker-standard \
           --region=asia-south1 \
@@ -89,6 +87,12 @@ steps:
           frontend=asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-frontend:$SHORT_SHA
 
         kubectl rollout status deployment/finance-tracker-frontend --timeout=600s
+
+images:
+  - asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-backend:$SHORT_SHA
+  - asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-backend:latest
+  - asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-frontend:$SHORT_SHA
+  - asia-south1-docker.pkg.dev/finance-tracker-app-512203/finance-tracker-repo/finance-tracker-frontend:latest
 
 options:
   logging: CLOUD_LOGGING_ONLY
