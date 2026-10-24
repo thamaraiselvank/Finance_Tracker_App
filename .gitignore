@@ -26,3 +26,8 @@ __pycache__/
 # OS files
 .DS_Store
 Thumbs.db
+
+#firebase
+.firebase/
+.firebaserc
+firebase.json
