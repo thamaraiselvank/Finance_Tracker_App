@@ -5,9 +5,15 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.core.database import execute_returning, fetch_all, fetch_one, get_db_connection
 from app.core.security import get_current_user_id
-from app.services.importer import parse_statement_file, parse_stock_file, parse_zerodha_holdings_file
+from app.services.importer import (
+    parse_pdf_statement_file,
+    parse_statement_file,
+    parse_stock_file,
+    parse_zerodha_holdings_file,
+)
 
 router = APIRouter(prefix="/import", tags=["Statement Importer"])
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 
 class BulkImportItem(BaseModel):
     date: str
@@ -22,8 +28,19 @@ class BulkImportItem(BaseModel):
     notes: Optional[str] = None
 
 class BulkImportPayload(BaseModel):
-    account_id: Optional[str] = None
+    account_id: str
     transactions: List[BulkImportItem]
+
+
+def normalize_import_type(value: Optional[str]) -> str:
+    normalized_type = (value or '').upper()
+    if normalized_type not in {'INCOME', 'EXPENSE'}:
+        raise HTTPException(
+            status_code=422,
+            detail="Each imported transaction must be classified as income or expense.",
+        )
+    return normalized_type
+
 
 class BulkAssetImportItem(BaseModel):
     name: str
@@ -46,19 +63,47 @@ async def parse_uploaded_file(
     file: UploadFile = File(...),
     import_type: str = Form("transactions"),
     broker: str = Form("OTHER"),
+    password: Optional[str] = Form(None),
+    use_gemini: bool = Form(False),
     user_id: str = Depends(get_current_user_id)
 ):
-    if not file.filename.lower().endswith(('.csv', '.xlsx', '.xls', '.txt')):
-        raise HTTPException(status_code=400, detail="Unsupported file format. Please upload CSV or Excel (.xlsx) files.")
-        
-    contents = await file.read()
-    if import_type == "stocks" and broker.upper() == "ZERODHA":
-        result = parse_zerodha_holdings_file(contents, file.filename)
+    filename = file.filename or ""
+    extension = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    supported_extensions = {".csv", ".xlsx", ".xls", ".txt", ".pdf"}
+    if f".{extension}" not in supported_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file format. Please upload CSV, Excel, or PDF files.",
+        )
+    if import_type == "stocks" and extension == "pdf":
+        raise HTTPException(
+            status_code=400,
+            detail="PDF statements are currently supported for income and expense imports only.",
+        )
+
+    contents = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="The uploaded file exceeds the 15 MB limit.")
+    if extension == "pdf":
+        result = parse_pdf_statement_file(
+            contents, filename, password, use_gemini=use_gemini
+        )
+    elif import_type == "stocks" and broker.upper() == "ZERODHA":
+        result = parse_zerodha_holdings_file(contents, filename)
     elif import_type == "stocks":
-        result = parse_stock_file(contents, file.filename, broker.upper())
+        result = parse_stock_file(contents, filename, broker.upper())
     else:
-        result = parse_statement_file(contents, file.filename)
+        result = parse_statement_file(contents, filename)
     if not result.get("success"):
+        if extension == "pdf" and use_gemini:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Gemini extraction did not produce usable rows, and the local PDF parser "
+                    "could not recover transactions. Try a clearer PDF or CSV/Excel export. "
+                    + result.get("error", "")
+                ),
+            )
         raise HTTPException(status_code=400, detail=result.get("error", "Failed to parse file."))
         
     return result
@@ -104,37 +149,55 @@ def commit_imported_transactions(
     if not payload.transactions:
         raise HTTPException(status_code=400, detail="No transactions provided for import.")
 
+    account = fetch_one(
+        "SELECT id FROM accounts WHERE id = %s AND user_id = %s",
+        (payload.account_id, user_id),
+    )
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found.")
+
     user_cats = fetch_all("SELECT id, name, type FROM categories WHERE user_id = %s OR is_system = TRUE ORDER BY is_system DESC, name ASC", (user_id,))
-    cat_lookup = {str(c["name"]).strip().lower(): c for c in user_cats}
+    cat_lookup = {
+        (str(c["name"]).strip().lower(), c["type"]): c
+        for c in user_cats
+    }
 
     inserted_count = 0
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             for item in payload.transactions:
-                normalized_type = (item.type or 'EXPENSE').upper()
-                if normalized_type not in {'INCOME', 'EXPENSE'}:
-                    normalized_type = 'EXPENSE'
+                normalized_type = normalize_import_type(item.type)
 
                 try:
                     if item.time:
                         dt = datetime.datetime.fromisoformat(f"{item.date}T{item.time}")
                     else:
                         dt = datetime.datetime.fromisoformat(item.date)
-                except Exception:
+                except ValueError:
+                    dt = None
                     try:
                         dt = datetime.datetime.strptime(item.date, '%d-%m-%Y %H:%M:%S')
-                    except Exception:
+                    except ValueError:
                         try:
                             dt = datetime.datetime.strptime(item.date, '%d/%m/%Y %H:%M:%S')
-                        except Exception:
-                            dt = datetime.datetime.fromisoformat(item.date[:10]) if len(item.date) >= 10 else datetime.datetime.now()
+                        except ValueError as exc:
+                            try:
+                                dt = datetime.datetime.strptime(item.date, '%d-%m-%Y')
+                            except ValueError:
+                                try:
+                                    dt = datetime.datetime.strptime(item.date, '%d/%m/%Y')
+                                except ValueError:
+                                    raise HTTPException(
+                                        status_code=422,
+                                        detail="Each imported transaction must have a valid date.",
+                                    ) from exc
 
                 category_name = (item.category or '').strip()
                 category_row = None
                 if item.category_id:
                     category_row = fetch_one("SELECT * FROM categories WHERE id = %s AND (user_id = %s OR is_system = TRUE)", (item.category_id, user_id))
                 elif category_name:
-                    normalized_category_key = category_name.strip().lower()
+                    normalized_category_key = (category_name.strip().lower(), normalized_type)
                     if normalized_category_key in cat_lookup:
                         category_row = cat_lookup[normalized_category_key]
                     else:
@@ -151,7 +214,7 @@ def commit_imported_transactions(
                                 cat_lookup[normalized_category_key] = category_row
                 elif (item.notes or '').strip():
                     category_name = (item.notes or '').strip()
-                    normalized_category_key = category_name.lower()
+                    normalized_category_key = (category_name.lower(), normalized_type)
                     if normalized_category_key in cat_lookup:
                         category_row = cat_lookup[normalized_category_key]
                     else:
@@ -168,9 +231,12 @@ def commit_imported_transactions(
                                 cat_lookup[normalized_category_key] = category_row
 
                 if category_row is None:
+                    fallback_category = (
+                        "Other Income" if normalized_type == "INCOME" else "Other Expenses"
+                    )
                     category_row = fetch_one(
-                        "SELECT * FROM categories WHERE type = %s AND (user_id = %s OR is_system = TRUE) ORDER BY is_system DESC LIMIT 1",
-                        (normalized_type, user_id)
+                        "SELECT * FROM categories WHERE type = %s AND (user_id = %s OR is_system = TRUE) ORDER BY CASE WHEN lower(name) = lower(%s) THEN 0 ELSE 1 END, is_system DESC LIMIT 1",
+                        (normalized_type, user_id, fallback_category)
                     )
 
                 cat_id = category_row["id"] if category_row else None
@@ -193,16 +259,18 @@ def commit_imported_transactions(
                             subcategory_id = subcat_new["id"]
 
                 target_account = item.account_id or payload.account_id
+                cur.execute(
+                    "SELECT id FROM accounts WHERE id = %s AND user_id = %s",
+                    (target_account, user_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="Account not found.")
                 description_value = (item.description or '').strip()
                 if not description_value:
-                    if sub_name and category_name and category_name.lower() not in sub_name.lower():
-                        description_value = f"{category_name} | {sub_name}"
-                    elif sub_name:
-                        description_value = sub_name
-                    elif category_name:
-                        description_value = category_name
-                    else:
-                        description_value = 'Imported transaction'
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Each imported transaction must have a description.",
+                    )
 
                 notes_value = (item.notes or '').strip()
                 if not notes_value and category_name and sub_name:

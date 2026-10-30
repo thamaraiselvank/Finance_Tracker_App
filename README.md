@@ -9,8 +9,9 @@ Finverse is a personal finance workspace for tracking day-to-day money, building
 - **Wealth:** track assets and liabilities, portfolio allocation, and investment performance.
 - **Goals and debt:** monitor goal progress, monthly savings pace, outstanding debt, and payoff plans.
 - **Essentials and insurance:** review emergency-fund runway, savings rate, insurance coverage, and policy payment dates.
-- **Planning tools:** financial calculators, data import, and an AI advisor.
+- **Planning tools:** financial calculators, CSV/Excel and text-based PDF transaction import, and an AI advisor.
 - **Authentication:** account access with bearer-token authentication and refresh-token support.
+- **AI financial assistant:** authenticated, user-scoped financial summaries are sent from the backend to Gemini on Vertex AI; greetings and out-of-scope requests are handled locally.
 
 ## Project layout
 
@@ -35,6 +36,12 @@ Finverse is a personal finance workspace for tracking day-to-day money, building
 ```
 
 The frontend is a React 18 single-page application built with Vite, Tailwind CSS, Recharts, and Lucide icons. The backend is a FastAPI service using Pydantic schemas and PostgreSQL connection pooling.
+
+## Statement import
+
+Transaction imports support CSV, legacy `.xls` and `.xlsx` Excel files, and PDF bank statements, including scanned/image-only PDFs through local English-language OCR. PDF uploads can be password-protected; the password is used only while parsing the upload and is not stored. OCR runs on the backend with no external OCR or LLM service. PDF extraction combines text tables with OCR recovery for missed rows and headerless continuation pages; OCR uses the first-page column layout, groups wrapped narration with its transaction, and ignores opening-balance lines. When a running balance is available, changes are checked against the transaction amount. Rows without reliable direction are left unclassified and cannot be imported until corrected and explicitly reviewed or excluded. DOCX statements are not supported. PDF uploads are limited to 15 MB, text-based PDFs to 200 pages, and OCR to 20 pages per upload; imports are limited to 5,000 transactions.
+
+The backend container installs Tesseract OCR and its English language data. For local backend development, install Tesseract OCR with English language data and make the `tesseract` executable available on `PATH`.
 
 ## Requirements
 
@@ -69,6 +76,16 @@ uvicorn app.main:app --reload
 The API runs at <http://127.0.0.1:8000>. Interactive API documentation is at <http://127.0.0.1:8000/docs>, and the health check is at <http://127.0.0.1:8000/api/health>.
 
 The backend requires PostgreSQL. If PostgreSQL is unavailable or its credentials are incorrect, startup fails with a clear connection error; it does not create or switch to a local SQLite database. The `/api/health` endpoint returns HTTP 503 when PostgreSQL cannot be reached.
+
+### Gemini AI advisor (Vertex AI)
+
+The AI advisor uses the Google Gen AI SDK on the backend. For local development, authenticate with `gcloud auth application-default login` using an account that has permission to call Vertex AI. The configured project ID is the default; set `GEMINI_PROJECT`, `GEMINI_LOCATION`, or `GEMINI_MODEL` in the repository-root `.env` to override it. No Google credential or API key belongs in the frontend.
+
+For Cloud Run, grant the service's runtime service account the Vertex AI User role on the Google Cloud project, then set the same `GEMINI_*` environment variables on the service. Application Default Credentials will use that service identity; do not deploy a downloaded service-account key. `GEMINI_ENABLED=false` disables model calls. Model name, location, temperature, output-token limit, and the JSON `AI_GUARDRAILS_FILE` path are configurable. Guardrail phrases and regular-expression patterns live in `backend/app/data/ai_guardrails.json`.
+
+The model never writes or executes SQL. The backend assembles bounded summaries with parameterized queries scoped to the authenticated user and sends those summaries with the question to Vertex AI. Conversation turns are stored in the existing `ai_conversations` table, scoped to the owner, and the latest thread is restored when the advisor opens. Greetings, configured blocked patterns, and clearly non-financial questions are answered before the model call. Keep the frontend's deployed origin in `BACKEND_CORS_ORIGINS` when using Firebase Hosting.
+
+AI usage is capped at 30 Gemini-backed user questions per day by default (`AI_DAILY_REQUEST_LIMIT`). The calendar day resets in `AI_QUOTA_TIMEZONE` (default `Asia/Kolkata`). A separate cross-instance burst guard allows 5 chat/new-conversation requests per 60-second window by default; configure it with `AI_BURST_REQUESTS_PER_MINUTE` and `AI_BURST_WINDOW_SECONDS`. The limits are enforced in PostgreSQL, so they apply across tabs and Cloud Run instances. A multi-step model/tool flow still consumes one daily question, local greeting/guardrail replies consume none, and failed AI requests release their daily reservation.
 
 ### 2. Frontend
 

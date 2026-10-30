@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
+from uuid import UUID
+import datetime
 
 class AiInsightCard(BaseModel):
     category: str # "Savings", "Emergency Fund", "Debt", "Investments", "Insurance", "FIRE"
@@ -20,9 +22,20 @@ class AiFinancialAuditResponse(BaseModel):
     recommended_next_steps: List[str] = []
 
 class AiChatPrompt(BaseModel):
-    question: str
-    context: Optional[Dict[str, Any]] = None
+    question: str = Field(..., min_length=1, max_length=1200)
+    conversation_id: Optional[UUID] = None
+
+
+class AiQuotaStatus(BaseModel):
+    limit: int
+    used: int
+    remaining: int
+    resets_at: datetime.datetime
+    timezone: str
+
 
 class AiChatResponse(BaseModel):
     answer: str
     suggested_actions: List[str] = []
+    conversation_id: Optional[UUID] = None
+    quota: Optional[AiQuotaStatus] = None

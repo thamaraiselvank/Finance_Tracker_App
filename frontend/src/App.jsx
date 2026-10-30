@@ -16,6 +16,8 @@ import Import from './pages/Import';
 import AIAdvisor from './pages/AIAdvisor';
 import Profile from './pages/Profile';
 import preventNegativeNumberInput from './utils/preventNegativeNumberInput';
+import AIChatShortcut from './components/AIChatShortcut';
+import LearningCenter from './pages/LearningCenter';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -83,7 +85,7 @@ export default function App() {
           onChangeCapture={preventNegativeNumberInput}
         >
           {(activeTab === 'dashboard' || activeTab === 'overview') && (
-            <Overview hideAmounts={hideAmounts} setActiveTab={setActiveTab} />
+            <Overview hideAmounts={hideAmounts} setActiveTab={setActiveTab} userId={user?.id} />
           )}
           {activeTab === 'goals' && <GoalsPage />}
           {activeTab === 'debts' && <DebtsPage />}
@@ -107,8 +109,10 @@ export default function App() {
             <AIAdvisor hideAmounts={hideAmounts} setActiveTab={setActiveTab} />
           )}
           {activeTab === 'profile' && <Profile />}
+          {activeTab === 'learn' && <LearningCenter setActiveTab={setActiveTab} />}
         </main>
       </div>
+      <AIChatShortcut onOpen={() => setActiveTab('ai-advisor')} />
     </div>
   );
 }

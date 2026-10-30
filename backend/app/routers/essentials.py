@@ -12,6 +12,28 @@ from app.services.health_engine import compute_user_financial_health
 
 router = APIRouter(prefix="/essentials", tags=["Essentials & Financial Health"])
 
+def _normalize_insurance_row(row: dict) -> dict:
+    insurance_type = str((row.get("insurance_type") or row.get("policy_type") or "OTHER")).upper()
+    if insurance_type in {"TERM", "TERM_LIFE", "LIFE"}:
+        insurance_type = "TERM"
+    elif insurance_type in {"HEALTH", "HEALTH_INSURANCE"}:
+        insurance_type = "HEALTH"
+    elif insurance_type in {"CRITICAL_ILLNESS", "CRITICAL_ILLNESS_INSURANCE"}:
+        insurance_type = "CRITICAL_ILLNESS"
+    return {
+        **row,
+        "policy_name": row.get("policy_name") or row.get("name") or "Insurance Policy",
+        "insurance_type": insurance_type,
+        "sum_insured": float(row.get("sum_insured") or 0.0),
+        "annual_premium": float(row.get("annual_premium") or 0.0),
+        "policy_start_date": row.get("policy_start_date") or row.get("start_date"),
+        "renewal_date": row.get("renewal_date") or row.get("renewal_date"),
+        "dependents_covered": int(row.get("dependents_covered") or 0),
+        "insurer_name": row.get("insurer_name") or row.get("insurer") or row.get("lender"),
+        "is_active": row.get("is_active") if row.get("is_active") is not None else str(row.get("status") or "ACTIVE").upper() in {"ACTIVE", "RENEWED", "PENDING"},
+        "notes": row.get("notes") or row.get("policy_number") or None,
+    }
+
 @router.get("/health-check", response_model=EssentialsCheckSummary)
 def get_financial_health_check(user_id: str = Depends(get_current_user_id)):
     """Computes full Finverse-style essentials financial health check."""
@@ -19,8 +41,12 @@ def get_financial_health_check(user_id: str = Depends(get_current_user_id)):
 
 @router.get("/insurances", response_model=List[InsuranceOut])
 def get_insurances(user_id: str = Depends(get_current_user_id)):
-    insurances = fetch_all("SELECT * FROM insurances WHERE user_id = %s ORDER BY created_at ASC", (user_id,))
-    return insurances
+    legacy_insurances = fetch_all("SELECT * FROM insurances WHERE user_id = %s ORDER BY created_at ASC", (user_id,))
+    policy_rows = fetch_all("SELECT * FROM insurance_policies WHERE user_id = %s ORDER BY created_at ASC", (user_id,))
+    merged = [_normalize_insurance_row(row) for row in legacy_insurances]
+    merged.extend(_normalize_insurance_row(row) for row in policy_rows)
+    merged.sort(key=lambda item: (item.get("created_at") or "", item.get("policy_name") or ""))
+    return merged
 
 @router.post("/insurances", response_model=InsuranceOut)
 def create_insurance(payload: InsuranceCreate, user_id: str = Depends(get_current_user_id)):

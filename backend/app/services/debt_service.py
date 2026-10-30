@@ -1,5 +1,6 @@
 """Debt Management Service - Calculate payoff strategies and interest"""
-from datetime import date, timedelta
+import calendar
+from datetime import date
 from typing import Dict, List, Tuple, Optional
 from app.core.database import fetch_one, fetch_all
 import logging
@@ -60,58 +61,135 @@ def calculate_avalanche_payoff(debts: List[Dict]) -> Tuple[List[Dict], float, in
     Calculate debt avalanche strategy (highest interest first)
     Returns (ordered_debts, total_interest_saved, months_to_payoff)
     """
-    # Sort by interest rate (descending)
-    sorted_debts = sorted(debts, key=lambda x: x.get('interest_rate_pct', 0), reverse=True)
-    
-    total_interest = 0
-    total_months = 0
-    result = []
-    
-    for debt in sorted_debts:
-        principal = debt.get('current_outstanding', 0)
-        annual_rate = debt.get('interest_rate_pct', 0)
-        monthly_payment = debt.get('monthly_emi', 0)
-        
-        months, interest = calculate_payoff_timeline(principal, annual_rate, monthly_payment)
-        total_interest += interest
-        total_months = max(total_months, months)
-        
-        result.append({
-            **debt,
-            'months_to_payoff': months,
-            'total_interest': interest,
-            'payoff_date': date.today() + timedelta(days=months * 30)
-        })
-    
-    return result, total_interest, total_months
+    return calculate_payoff_strategy(debts, 'avalanche')
 
 def calculate_snowball_payoff(debts: List[Dict]) -> Tuple[List[Dict], int, int]:
     """
     Calculate debt snowball strategy (smallest balance first)
     Returns (ordered_debts, motivation_wins, months_to_payoff)
     """
-    # Sort by outstanding balance (ascending)
-    sorted_debts = sorted(debts, key=lambda x: x.get('current_outstanding', 0))
-    
-    total_months = 0
+    ordered_debts, _, months_to_payoff = calculate_payoff_strategy(debts, 'snowball')
+    return ordered_debts, len(ordered_debts), months_to_payoff
+
+
+def _simulate_debt_payments(debts: List[Dict], order: List[int], roll_extra: bool) -> Dict:
+    if not debts:
+        return {
+            'payoff_months': [],
+            'interest_paid': [],
+            'months_to_complete': 0,
+        }
+
+    balances = [max(0.0, float(debt.get('current_outstanding') or 0.0)) for debt in debts]
+    interest_rates = [max(0.0, float(debt.get('interest_rate_pct') or 0.0)) for debt in debts]
+    monthly_payments = [max(0.0, float(debt.get('monthly_emi') or 0.0)) for debt in debts]
+    total_monthly_budget = sum(
+        monthly_payments[index] for index, balance in enumerate(balances) if balance > 0
+    )
+    interest_paid = [0.0] * len(debts)
+    payoff_months = [0 if balance <= 0 else None for balance in balances]
+    max_months = 600
+
+    for month in range(1, max_months + 1):
+        if not any(balance > 0 for balance in balances):
+            break
+
+        previous_balances = balances[:]
+        remaining_budget = total_monthly_budget
+        for index, balance in enumerate(balances):
+            if balance <= 0:
+                continue
+            interest = balance * interest_rates[index] / 1200
+            interest_paid[index] += interest
+            balances[index] = balance + interest
+            payment = min(monthly_payments[index], balances[index])
+            balances[index] -= payment
+            remaining_budget -= payment
+
+        if roll_extra:
+            for index in order:
+                if remaining_budget <= 0:
+                    break
+                if balances[index] <= 0:
+                    continue
+                payment = min(remaining_budget, balances[index])
+                balances[index] -= payment
+                remaining_budget -= payment
+
+        for index, balance in enumerate(balances):
+            if balance <= 0.005:
+                balances[index] = 0.0
+                if payoff_months[index] is None:
+                    payoff_months[index] = month
+
+        if not any(
+            balances[index] < previous_balances[index] - 0.005
+            for index in range(len(balances))
+            if balances[index] > 0
+        ) and any(balance > 0 for balance in balances):
+            break
+
+    for index, month in enumerate(payoff_months):
+        if month is None and balances[index] > 0:
+            payoff_months[index] = max_months
+
+    return {
+        'payoff_months': payoff_months,
+        'interest_paid': interest_paid,
+        'months_to_complete': max((month or 0) for month in payoff_months),
+    }
+
+
+def calculate_payoff_strategy(debts: List[Dict], strategy: str) -> Tuple[List[Dict], float, int]:
+    """Simulate all minimum payments together and roll freed payments into the target debt."""
+    if strategy == 'avalanche':
+        ordered_indexes = sorted(
+            range(len(debts)),
+            key=lambda index: (
+                -float(debts[index].get('interest_rate_pct') or 0.0),
+                str(debts[index].get('start_date') or ''),
+                str(debts[index].get('debt_name') or ''),
+            ),
+        )
+    elif strategy == 'snowball':
+        ordered_indexes = sorted(
+            range(len(debts)),
+            key=lambda index: (
+                float(debts[index].get('current_outstanding') or 0.0),
+                str(debts[index].get('start_date') or ''),
+                str(debts[index].get('debt_name') or ''),
+            ),
+        )
+    else:
+        raise ValueError(f"Unknown debt payoff strategy: {strategy}")
+
+    baseline = _simulate_debt_payments(debts, ordered_indexes, roll_extra=False)
+    plan = _simulate_debt_payments(debts, ordered_indexes, roll_extra=True)
+    baseline_interest = sum(baseline['interest_paid'])
+    strategy_interest = sum(plan['interest_paid'])
     result = []
-    
-    for debt in sorted_debts:
-        principal = debt.get('current_outstanding', 0)
-        annual_rate = debt.get('interest_rate_pct', 0)
-        monthly_payment = debt.get('monthly_emi', 0)
-        
-        months, interest = calculate_payoff_timeline(principal, annual_rate, monthly_payment)
-        total_months = max(total_months, months)
-        
+
+    for index in ordered_indexes:
+        debt = debts[index]
+        months = plan['payoff_months'][index]
         result.append({
             **debt,
             'months_to_payoff': months,
-            'total_interest': interest,
-            'payoff_date': date.today() + timedelta(days=months * 30)
+            'total_interest': plan['interest_paid'][index],
+            'total_interest_if_minimum': baseline['interest_paid'][index],
+            'payoff_date': _add_months(date.today(), months) if months else None,
         })
-    
-    return result, len(sorted_debts), total_months
+
+    return result, max(0.0, baseline_interest - strategy_interest), plan['months_to_complete']
+
+
+def _add_months(start_date: date, months: int) -> date:
+    month_index = start_date.month - 1 + months
+    year = start_date.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(start_date.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
 
 def calculate_extra_payment_impact(
     principal: float,

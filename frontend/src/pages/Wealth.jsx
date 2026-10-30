@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import useCurrency from '../utils/useCurrency';
+import ConfirmDialog from '../components/ConfirmDialog';
+import PageGuide from '../components/PageGuide';
 
 const ASSET_CLASSES = [
   { id: 'ALL', label: 'All Classes' },
@@ -44,6 +46,7 @@ export default function Wealth({ hideAmounts }) {
   const [refreshingAssetId, setRefreshingAssetId] = useState(null);
   const [refreshingAllPrices, setRefreshingAllPrices] = useState(false);
   const [assetPriceUpdatedAt, setAssetPriceUpdatedAt] = useState(null);
+  const [deleteCandidate, setDeleteCandidate] = useState(null);
 
   // Asset Form State
   const [assetForm, setAssetForm] = useState({
@@ -95,6 +98,16 @@ export default function Wealth({ hideAmounts }) {
 
   const toggleClassExpand = (cls) => {
     setExpandedClasses((prev) => ({ ...prev, [cls]: !prev[cls] }));
+  };
+
+  const updateAssetUnitField = (field, value) => {
+    setAssetForm((current) => {
+      const updated = { ...current, [field]: value };
+      const price = Number(field === 'current_price' ? value : updated.current_price);
+      const quantity = Number(field === 'quantity' ? value : updated.quantity);
+      updated.current_value = price > 0 && quantity > 0 ? String(price * quantity) : '';
+      return updated;
+    });
   };
 
   const handleCreateAsset = async (e) => {
@@ -152,27 +165,9 @@ export default function Wealth({ hideAmounts }) {
     }
   };
 
-  const handleDeleteAsset = async (id) => {
-    if (window.confirm('Delete this asset holding?')) {
-      try {
-        await api.delete(`/assets/${id}`);
-        fetchData();
-      } catch (err) {
-        alert('Failed to delete asset');
-      }
-    }
-  };
+  const handleDeleteAsset = (id) => setDeleteCandidate({ type: 'asset', id });
 
-  const handleDeleteAllAssets = async () => {
-    if (window.confirm('Delete all asset holdings? This cannot be undone.')) {
-      try {
-        await api.delete('/assets/all');
-        fetchData();
-      } catch (err) {
-        alert('Failed to delete all assets');
-      }
-    }
-  };
+  const handleDeleteAllAssets = () => setDeleteCandidate({ type: 'allAssets' });
 
   const handleOpenAsset = (asset) => {
     setSelectedAsset(asset);
@@ -242,16 +237,36 @@ export default function Wealth({ hideAmounts }) {
     }
   };
 
-  const handleDeleteLiability = async (id) => {
-    if (window.confirm('Delete this loan/liability?')) {
-      try {
-        await api.delete(`/liabilities/${id}`);
-        fetchData();
-      } catch (err) {
-        alert('Failed to delete liability');
-      }
+  const handleDeleteLiability = (id) => setDeleteCandidate({ type: 'liability', id });
+
+  const confirmDelete = async () => {
+    if (!deleteCandidate) return;
+    if (deleteCandidate.type === 'asset') {
+      await api.delete(`/assets/${deleteCandidate.id}`);
+    } else if (deleteCandidate.type === 'allAssets') {
+      await api.delete('/assets/all');
+    } else if (deleteCandidate.type === 'liability') {
+      await api.delete(`/liabilities/${deleteCandidate.id}`);
     }
+    await fetchData();
   };
+
+  const deleteDialog = deleteCandidate
+    ? {
+      asset: {
+        title: 'Delete this asset holding?',
+        description: 'This asset record will be permanently deleted. This cannot be undone.',
+      },
+      allAssets: {
+        title: 'Delete all asset holdings?',
+        description: 'All of your asset records will be permanently deleted. This cannot be undone.',
+      },
+      liability: {
+        title: 'Delete this loan or liability?',
+        description: 'This liability record will be permanently deleted. This cannot be undone.',
+      },
+    }[deleteCandidate.type]
+    : null;
 
   const handleViewAmortization = async (id) => {
     try {
@@ -331,6 +346,13 @@ export default function Wealth({ hideAmounts }) {
           )}
         </div>
       </div>
+
+      <PageGuide
+        title={`Wealth: ${activeSubTab === 'networth' ? 'net worth' : activeSubTab}`}
+        summary={activeSubTab === 'assets' ? 'Assets are things of financial value you own, such as account balances, investments, or property.' : activeSubTab === 'liabilities' ? 'Liabilities are debts you owe, such as loans. Track the current balance and payment details.' : activeSubTab === 'networth' ? 'Net worth is the value of tracked assets minus tracked liabilities. It is a snapshot, not spendable cash.' : 'Allocation shows how tracked asset value is divided among asset classes; it does not rate whether a mix is right for you.'}
+        steps={activeSubTab === 'assets' ? ['Add an account or asset you want to track.', 'Use its current estimated value; update it when that value changes.'] : activeSubTab === 'liabilities' ? ['Add the current outstanding balance from your lender.', 'Include the rate and monthly payment if you know them.'] : activeSubTab === 'networth' ? ['Check that the accounts, assets, and debts you chose to track are up to date.', 'Compare snapshots over time.'] : ['Review the percentage in each class.', 'Missing classes may simply mean you have not added those records.']}
+        terms={[{ term: 'Asset', definition: 'Something you own that has financial value.' }, { term: 'Liability', definition: 'A debt or obligation you owe.' }, { term: 'Net worth', definition: 'Tracked assets minus tracked liabilities.' }, { term: 'Allocation', definition: 'The share of tracked assets in each class.' }]}
+      />
 
       {/* Sub Tabs Navigation */}
       <div className="flex items-center gap-6 border-b border-slate-200 text-xs font-semibold">
@@ -598,7 +620,7 @@ export default function Wealth({ hideAmounts }) {
             </div>
             <div className="text-right">
               <span className="text-xs text-slate-400">Total Net Worth</span>
-              <p className="text-2xl font-black text-emerald-800">{formatCurrency(wealthSummary?.net_worth || 0)}</p>
+              <p className={`text-2xl font-black ${Number(wealthSummary?.net_worth || 0) < 0 ? 'text-red-700' : 'text-emerald-800'}`}>{formatCurrency(wealthSummary?.net_worth || 0)}</p>
             </div>
           </div>
 
@@ -767,7 +789,7 @@ export default function Wealth({ hideAmounts }) {
                         step="any"
                         placeholder="e.g. 2650"
                         value={assetForm.current_price}
-                        onChange={(e) => setAssetForm({ ...assetForm, current_price: e.target.value })}
+                        onChange={(e) => updateAssetUnitField('current_price', e.target.value)}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                       />
                     </div>
@@ -780,7 +802,7 @@ export default function Wealth({ hideAmounts }) {
                         type="number"
                         step="any"
                         value={assetForm.quantity}
-                        onChange={(e) => setAssetForm({ ...assetForm, quantity: e.target.value })}
+                        onChange={(e) => updateAssetUnitField('quantity', e.target.value)}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                       />
                     </div>
@@ -790,11 +812,7 @@ export default function Wealth({ hideAmounts }) {
                         type="number"
                         step="any"
                         required
-                        placeholder={
-                          assetForm.current_price && assetForm.quantity
-                            ? String(parseFloat(assetForm.current_price) * parseFloat(assetForm.quantity))
-                            : "Total value"
-                        }
+                        placeholder="Total value"
                         value={assetForm.current_value}
                         onChange={(e) => setAssetForm({ ...assetForm, current_value: e.target.value })}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
@@ -1039,6 +1057,14 @@ export default function Wealth({ hideAmounts }) {
             </div>
           </div>
         </div>
+      )}
+      {deleteCandidate && deleteDialog && (
+        <ConfirmDialog
+          title={deleteDialog.title}
+          description={deleteDialog.description}
+          onCancel={() => setDeleteCandidate(null)}
+          onConfirm={confirmDelete}
+        />
       )}
     </div>
   );

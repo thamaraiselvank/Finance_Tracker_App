@@ -20,10 +20,35 @@ def hydrate_liability(l: dict) -> dict:
         "paid_percentage": max(0.0, min(100.0, paid_pct))
     }
 
+def hydrate_debt_as_liability(d: dict) -> dict:
+    principal = float(d.get("principal_amount") or d.get("current_outstanding") or 0.0)
+    outstanding = float(d.get("current_outstanding") or principal)
+    emi = float(d.get("monthly_emi") or d.get("emi_amount") or 0.0)
+    return {
+        "id": d.get("id"),
+        "user_id": d.get("user_id"),
+        "name": d.get("debt_name") or d.get("name") or "Debt",
+        "liability_type": d.get("debt_type") or d.get("liability_type") or "LOAN",
+        "principal_amount": principal,
+        "current_outstanding": outstanding,
+        "interest_rate_pct": float(d.get("interest_rate_pct") or 0.0),
+        "tenure_months": int(d.get("tenure_months") or 0),
+        "emi_amount": emi,
+        "start_date": d.get("start_date"),
+        "lender": d.get("creditor_name") or d.get("lender"),
+        "notes": d.get("notes"),
+        "created_at": d.get("created_at"),
+        "updated_at": d.get("updated_at"),
+        "source": "debt",
+    }
+
 @router.get("", response_model=List[LiabilityOut])
 def get_liabilities(user_id: str = Depends(get_current_user_id)):
     raw = fetch_all("SELECT * FROM liabilities WHERE user_id = %s ORDER BY current_outstanding DESC", (user_id,))
-    return [hydrate_liability(l) for l in raw]
+    debt_rows = fetch_all("SELECT * FROM debts WHERE user_id = %s ORDER BY current_outstanding DESC", (user_id,))
+    items = [hydrate_liability(l) for l in raw] + [hydrate_debt_as_liability(d) for d in debt_rows]
+    items.sort(key=lambda item: float(item.get("current_outstanding") or 0.0), reverse=True)
+    return items
 
 @router.post("", response_model=LiabilityOut)
 def create_liability(payload: LiabilityCreate, user_id: str = Depends(get_current_user_id)):

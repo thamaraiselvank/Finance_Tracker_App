@@ -62,17 +62,22 @@ def get_assets(asset_class: Optional[str] = None, user_id: str = Depends(get_cur
 def get_wealth_summary(user_id: str = Depends(get_current_user_id)):
     raw_assets = fetch_all("SELECT * FROM assets WHERE user_id = %s ORDER BY current_value DESC", (user_id,))
     assets = [hydrate_asset(a) for a in raw_assets]
-    
+    accounts = fetch_all("SELECT * FROM accounts WHERE user_id = %s AND is_active = TRUE", (user_id,))
+    total_account_balance = sum(float(a.get("balance") or 0.0) for a in accounts)
+
     total_invested = sum(a["invested_amount"] for a in assets)
-    total_current = sum(a["current_value"] for a in assets)
+    total_current = sum(a["current_value"] for a in assets) + total_account_balance
     total_pnl = total_current - total_invested
     total_pnl_pct = round((total_pnl / total_invested * 100.0), 2) if total_invested > 0 else 0.0
-    
-    # Liabilities summary
+
+    # Liabilities summary across both loan tables to keep module-level totals aligned.
     liabs = fetch_all("SELECT * FROM liabilities WHERE user_id = %s", (user_id,))
+    debts = fetch_all("SELECT * FROM debts WHERE user_id = %s", (user_id,))
     total_liab_outstanding = sum(float(l.get("current_outstanding") or 0.0) for l in liabs)
+    total_liab_outstanding += sum(float(d.get("current_outstanding") or 0.0) for d in debts)
     total_emi = sum(float(l.get("emi_amount") or 0.0) for l in liabs)
-    
+    total_emi += sum(float(d.get("monthly_emi") or 0.0) for d in debts)
+
     net_worth = total_current - total_liab_outstanding
     
     # Group by Asset Class

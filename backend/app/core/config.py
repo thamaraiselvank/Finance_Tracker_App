@@ -1,5 +1,6 @@
 import os
-from pydantic import model_validator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -14,7 +15,7 @@ class Settings(BaseSettings):
     # Security / JWT
     SECRET_KEY: str = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60")) # 1 hour
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30")) # 30 days
     
     # Database - Direct PostgreSQL
@@ -32,6 +33,48 @@ class Settings(BaseSettings):
     # Pool Settings
     PG_MIN_POOL_SIZE: int = int(os.getenv("PG_MIN_POOL_SIZE", "1"))
     PG_MAX_POOL_SIZE: int = int(os.getenv("PG_MAX_POOL_SIZE", "5"))
+
+    # Vertex AI Gemini. ADC is used locally and the Cloud Run service account in production.
+    GEMINI_ENABLED: bool = True
+    GEMINI_PROJECT: str = "finance-tracker-app-512203"
+    GEMINI_LOCATION: str = "global"
+    GEMINI_MODEL: str = "gemini-3.8-flash"
+    GEMINI_TEMPERATURE: float = 0.3
+    GEMINI_MAX_OUTPUT_TOKENS: int = 4000
+    # Multimodal statement parsing is user opt-in and bounded independently from chat.
+    IMPORT_GEMINI_ENABLED: bool = True
+    IMPORT_GEMINI_MAX_PAGES: int = 20
+    IMPORT_GEMINI_MAX_ROWS: int = 1000
+    IMPORT_GEMINI_MAX_OUTPUT_TOKENS: int = 12000
+    AI_GUARDRAILS_FILE: str = os.path.join(os.path.dirname(__file__), "..", "data", "ai_guardrails.json")
+    AI_DAILY_REQUEST_LIMIT: int = 30
+    AI_QUOTA_TIMEZONE: str = "Asia/Kolkata"
+    AI_BURST_REQUESTS_PER_MINUTE: int = 5
+    AI_BURST_WINDOW_SECONDS: int = 60
+
+    @field_validator("GEMINI_PROJECT", mode="before")
+    @classmethod
+    def default_vertex_project(cls, value: str | None) -> str:
+        return value.strip() if isinstance(value, str) and value.strip() else "finance-tracker-app-512203"
+
+    @field_validator(
+        "AI_DAILY_REQUEST_LIMIT", "AI_BURST_REQUESTS_PER_MINUTE", "AI_BURST_WINDOW_SECONDS",
+        "IMPORT_GEMINI_MAX_PAGES", "IMPORT_GEMINI_MAX_ROWS", "IMPORT_GEMINI_MAX_OUTPUT_TOKENS",
+    )
+    @classmethod
+    def validate_positive_ai_limits(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("AI request limits must be positive integers.")
+        return value
+
+    @field_validator("AI_QUOTA_TIMEZONE")
+    @classmethod
+    def validate_ai_quota_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, TypeError):
+            raise ValueError("AI_QUOTA_TIMEZONE must be a valid IANA timezone, such as Asia/Kolkata.")
+        return value
 
     # CORS
    

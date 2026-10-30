@@ -15,7 +15,7 @@ class TransactionBase(BaseModel):
     tags: Optional[str] = None
 
 class TransactionCreate(TransactionBase):
-    pass
+    account_id: UUID | str
 
 class TransactionUpdate(BaseModel):
     account_id: Optional[UUID | str] = None

@@ -1,0 +1,20 @@
+{
+  "greetings": [
+    "hi",
+    "hello",
+    "hey",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "how are you",
+    "how are you doing"
+  ],
+  "greeting_reply": "Hi {name}! I’m your Finverse financial assistant. I can help you understand your spending, savings, debt, investments, insurance, and goals. What would you like to review?",
+  "off_topic_reply": "I can help with your personal finances in Finverse—such as spending, savings, debt, investments, insurance, and goals. What would you like to understand?",
+  "blocked_patterns": [
+    "\\b(how to (make|build|buy) (a )?(bomb|weapon|explosive)|instructions? for (a )?(bomb|weapon)|kill (myself|someone)|self[- ]?harm)\\b",
+    "\\b(steal|hack|phish|bypass) (someone('s|s)? )?(password|account|bank|credentials)\\b",
+    "\\b(ignore (all )?(previous|prior) instructions|reveal (the )?(system prompt|secrets|credentials)|exfiltrate)\\b"
+  ],
+  "blocked_reply": "I can’t help with that request. I’m here to support safe, personal finance questions. You can ask about your budget, transactions, goals, or financial health."
+}

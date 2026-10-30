@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Bell, 
+  Clock3,
   Eye, 
   EyeOff, 
   Moon, 
@@ -8,13 +9,17 @@ import {
   ChevronDown, 
   LogOut, 
   User, 
-  Sliders
+  Sliders,
+  RefreshCw
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export default function Navbar({ hideAmounts, setHideAmounts, activeTab, setActiveTab, theme, setTheme }) {
-  const { user, logout } = useAuth();
+  const { user, logout, remainingSeconds, staySignedIn, isRefreshingSession, sessionRefreshError } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const sessionTime = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, '0')}`;
+  const sessionWarning = remainingSeconds <= 120;
 
   const getInitials = (name) => {
     if (!name) return 'U';
@@ -24,7 +29,7 @@ export default function Navbar({ hideAmounts, setHideAmounts, activeTab, setActi
   return (
     <header className="sticky top-0 z-30 app-navbar backdrop-blur-xl border-b">
       {/* Main Navbar */}
-      <div className="px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-2">
+      <div className="navbar-main px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <div className="lg:hidden font-bold text-lg font-display">
             <span className="aurora-text">Fin</span><span className="brand-tail">verse</span><span className="text-cyan-400">.</span>
@@ -35,7 +40,7 @@ export default function Navbar({ hideAmounts, setHideAmounts, activeTab, setActi
         </div>
 
         {/* Right Actions */}
-        <div className="flex items-center gap-1 sm:gap-3">
+        <div className="navbar-actions flex items-center gap-1 sm:gap-3">
           {/* Privacy Toggle (Hide Amounts) */}
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -56,15 +61,44 @@ export default function Navbar({ hideAmounts, setHideAmounts, activeTab, setActi
           {/* Notification Bell */}
           <div className="relative">
             <button 
-              onClick={() => setActiveTab('ai-advisor')}
+              onClick={() => setShowNotifications((open) => !open)}
+              aria-expanded={showNotifications}
+              aria-label="Notifications"
               className="p-2 text-slate-400 hover:text-white hover:bg-white/[0.06] rounded-xl transition-all duration-200 relative"
-              title="AI Financial Alerts"
+              title="Notifications"
             >
               <Bell className="w-4 h-4" />
-              <span className="absolute top-0.5 right-0.5 w-4 h-4 bg-gradient-to-r from-red-500 to-rose-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center animate-notification shadow-[0_0_8px_rgba(239,68,68,0.4)]">
-                3
-              </span>
             </button>
+            {showNotifications && (
+              <div className="absolute right-0 mt-2 w-64 rounded-xl border border-white/10 bg-slate-900 p-4 text-sm text-slate-300 shadow-xl z-50">
+                <p className="font-semibold text-white">Notifications</p>
+                <p className="mt-2 text-xs text-slate-400">You’re all caught up.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="relative">
+            <div className={`session-timer-control flex items-center gap-1 rounded-xl border px-2 py-1.5 ${sessionWarning ? 'session-timer-warning' : ''}`}>
+              <Clock3 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="font-mono text-[11px] font-semibold tabular-nums" aria-label={`Session expires in ${sessionTime}`}>
+                {sessionTime}
+              </span>
+              <button
+                type="button"
+                onClick={staySignedIn}
+                disabled={isRefreshingSession}
+                className="session-refresh-button rounded-md p-1 transition-colors disabled:cursor-wait disabled:opacity-60"
+                title="Refresh sign-in session"
+                aria-label={isRefreshingSession ? 'Refreshing sign-in session' : 'Refresh sign-in session'}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingSession ? 'animate-spin' : ''}`} aria-hidden="true" />
+              </button>
+            </div>
+            {sessionRefreshError && (
+              <p className="session-refresh-error absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border px-3 py-2 text-[11px] shadow-lg" role="alert">
+                {sessionRefreshError}
+              </p>
+            )}
           </div>
 
           {/* User Profile Pill */}

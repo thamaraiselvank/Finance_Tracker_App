@@ -93,7 +93,7 @@ def get_transaction_months(user_id: str = Depends(get_current_user_id)):
         months.append({
             "year": year,
             "month": month,
-            "month_key": f"{year}-{month - 1}",
+            "month_key": f"{year}-{month:02d}",
             "label": datetime.date(year, month, 1).strftime("%B"),
             "transaction_count": int(row["transaction_count"] or 0),
         })
@@ -189,6 +189,13 @@ def get_transactions_summary(
 
 @router.post("", response_model=TransactionOut)
 def create_transaction(payload: TransactionCreate, user_id: str = Depends(get_current_user_id)):
+    account = fetch_one(
+        "SELECT id FROM accounts WHERE id = %s AND user_id = %s",
+        (payload.account_id, user_id),
+    )
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found.")
+
     tx = execute_returning("""
         INSERT INTO transactions (user_id, account_id, category_id, subcategory_id, type, amount, date, description, notes, tags)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -234,28 +241,73 @@ def create_transaction(payload: TransactionCreate, user_id: str = Depends(get_cu
 
 @router.put("/{transaction_id}", response_model=TransactionOut)
 def update_transaction(transaction_id: str, payload: TransactionUpdate, user_id: str = Depends(get_current_user_id)):
-    tx = fetch_one("SELECT * FROM transactions WHERE id = %s AND user_id = %s", (transaction_id, user_id))
-    if not tx:
-        raise HTTPException(status_code=404, detail="Transaction not found.")
-        
-    updates = []
-    params = []
-    for field, val in payload.model_dump(exclude_unset=True).items():
-        if field == "type" and val:
-            val = val.upper()
-        updates.append(f"{field} = %s")
-        params.append(val)
-        
-    if not updates:
-        return tx
-        
-    params.extend([transaction_id, user_id])
-    execute_query(f"""
-        UPDATE transactions 
-        SET {', '.join(updates)}
-        WHERE id = %s AND user_id = %s
-    """, tuple(params))
-    
+    updates = payload.model_dump(exclude_unset=True)
+    if "type" in updates and updates["type"]:
+        updates["type"] = updates["type"].upper()
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM transactions WHERE id = %s AND user_id = %s FOR UPDATE",
+                (transaction_id, user_id),
+            )
+            tx = cur.fetchone()
+            if not tx:
+                raise HTTPException(status_code=404, detail="Transaction not found.")
+
+            if not updates:
+                return tx
+
+            updated_values = {**tx, **updates}
+            new_account_id = updated_values["account_id"]
+            if not new_account_id:
+                raise HTTPException(status_code=400, detail="Select an account for this transaction.")
+            cur.execute(
+                "SELECT id FROM accounts WHERE id = %s AND user_id = %s",
+                (new_account_id, user_id),
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Account not found.")
+
+            def balance_effect(transaction_type, amount):
+                if transaction_type == "INCOME":
+                    return amount
+                if transaction_type == "EXPENSE":
+                    return -amount
+                return 0
+
+            old_effect = balance_effect(tx["type"], tx["amount"])
+            if tx["account_id"] and old_effect:
+                cur.execute(
+                    """
+                    UPDATE accounts
+                    SET balance = balance - %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s AND user_id = %s
+                    """,
+                    (old_effect, tx["account_id"], user_id),
+                )
+
+            new_effect = balance_effect(updated_values["type"], updated_values["amount"])
+            if new_account_id and new_effect:
+                cur.execute(
+                    """
+                    UPDATE accounts
+                    SET balance = balance + %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s AND user_id = %s
+                    """,
+                    (new_effect, new_account_id, user_id),
+                )
+
+            set_clause = ", ".join(f"{field} = %s" for field in updates)
+            cur.execute(
+                f"""
+                UPDATE transactions
+                SET {set_clause}
+                WHERE id = %s AND user_id = %s
+                """,
+                (*updates.values(), transaction_id, user_id),
+            )
+
     return fetch_one("""
         SELECT 
             t.*,

@@ -328,6 +328,23 @@ CREATE TABLE IF NOT EXISTS ai_conversations (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Per-user AI request accounting shared across backend instances.
+CREATE TABLE IF NOT EXISTS ai_daily_usage (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    usage_date DATE NOT NULL,
+    requests_used INTEGER NOT NULL DEFAULT 0 CHECK (requests_used >= 0),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, usage_date)
+);
+
+-- A single rolling-window bucket per user prevents request bursts across instances.
+CREATE TABLE IF NOT EXISTS ai_chat_rate_limits (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    window_start TIMESTAMP WITH TIME ZONE NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 0 CHECK (request_count >= 0),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 16. RECOMMENDATIONS TABLE (AI-Generated Suggestions)
 CREATE TABLE IF NOT EXISTS recommendations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

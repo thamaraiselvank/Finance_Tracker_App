@@ -47,7 +47,8 @@ app = FastAPI(
     title=settings.APP_NAME,
     version="1.0.0",
     description="Comprehensive Personal Finance, Wealth & Essentials Tracker API with AI Advisory",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs" if settings.ENVIRONMENT.lower() not in {"production", "prod"} else None,
 )
 
 # Setup CORS
@@ -98,10 +99,14 @@ def health_check():
         "environment": settings.ENVIRONMENT
     }
 
+@app.get("/health")
+def health_check_alias():
+    return health_check()
+
 @app.get("/")
 def root():
     return {
         "message": "Welcome to Finverse Personal Finance & Wealth Tracker API",
-        "docs": "/docs",
-        "health": "/api/health"
+        "docs": "/docs" if settings.ENVIRONMENT.lower() not in {"production", "prod"} else None,
+        "health": "/api/health",
     }

@@ -3,15 +3,17 @@ import { Plus, Shield, Calendar, Clock3, CreditCard, Pencil, Trash2 } from 'luci
 import api from '../services/api';
 import { inrInWords } from '../utils/numberWords';
 import useCurrency from '../utils/useCurrency';
+import ConfirmDialog from '../components/ConfirmDialog';
+import PageGuide from '../components/PageGuide';
 
 const emptyPolicy = {
     policy_name: '',
     policy_type: 'HEALTH',
-    sum_insured: 0,
-    annual_premium: 0,
+    sum_insured: '',
+    annual_premium: '',
     policy_number: '',
     coverage_type: 'Individual',
-    dependents_covered: 0,
+    dependents_covered: '',
     insurer_name: '',
     start_date: '',
     renewal_date: '',
@@ -28,6 +30,7 @@ export default function InsurancePage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState(null);
+  const [policyToDelete, setPolicyToDelete] = useState(null);
   const [newPolicy, setNewPolicy] = useState(emptyPolicy);
 
   useEffect(() => {
@@ -68,11 +71,11 @@ export default function InsurancePage() {
     setNewPolicy({
       policy_name: policy.policy_name || '',
       policy_type: policy.policy_type || 'HEALTH',
-      sum_insured: policy.sum_insured || 0,
-      annual_premium: policy.annual_premium || 0,
+      sum_insured: policy.sum_insured ?? '',
+      annual_premium: policy.annual_premium ?? '',
       policy_number: policy.policy_number || '',
       coverage_type: policy.coverage_type || 'Individual',
-      dependents_covered: policy.dependents_covered || 0,
+      dependents_covered: policy.dependents_covered ?? '',
       insurer_name: policy.insurer_name || '',
       start_date: policy.start_date ? policy.start_date.split('T')[0] : '',
       renewal_date: policy.renewal_date ? policy.renewal_date.split('T')[0] : '',
@@ -124,16 +127,10 @@ export default function InsurancePage() {
     }
   };
 
-  const handleDeletePolicy = async (policy) => {
-    if (!window.confirm(`Delete "${policy.policy_name}"? This cannot be undone.`)) return;
-    try {
-      await api.delete(`/insurance/${policy.id}`);
-      setPolicies((currentPolicies) => currentPolicies.filter((item) => item.id !== policy.id));
-      await Promise.all([fetchPolicies(), fetchSummary()]);
-    } catch (error) {
-      console.error('Error deleting policy:', error);
-      alert('Unable to delete this policy. Please try again.');
-    }
+  const handleDeletePolicy = async () => {
+    await api.delete(`/insurance/${policyToDelete.id}`);
+    setPolicies((currentPolicies) => currentPolicies.filter((item) => item.id !== policyToDelete.id));
+    await Promise.all([fetchPolicies(), fetchSummary()]);
   };
 
   const getPolicyIcon = (policyType) => {
@@ -206,24 +203,31 @@ export default function InsurancePage() {
         </button>
       </div>
 
+      <PageGuide
+        title="Insurance: keep policy details together"
+        summary="Record policy type, coverage, premium, and renewal dates so you can review what you have in one place."
+        steps={['Copy the coverage and premium from your policy documents.', 'Add renewal dates so you can find them later.', 'Compare coverage with your needs; the app’s estimates are prompts for review, not a suitability guarantee.']}
+        terms={[{ term: 'Premium', definition: 'The amount paid to keep a policy active.' }, { term: 'Sum insured', definition: 'The stated coverage amount, subject to policy terms.' }]}
+      />
+
       {/* Summary Cards */}
       {summary && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Total Policies</p>
-            <p className="text-3xl font-bold text-white">{summary.total_policies}</p>
+            <p className="finance-summary-value font-bold text-white">{summary.total_policies}</p>
           </div>
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Active Policies</p>
-            <p className="text-3xl font-bold text-emerald-400">{summary.active_policies}</p>
+            <p className="finance-summary-value font-bold text-emerald-400">{summary.active_policies}</p>
           </div>
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Total Sum Insured</p>
-            <p className="text-3xl font-bold text-blue-400">{formatCurrency(summary.total_sum_insured)}</p>
+            <p className="finance-summary-value font-bold text-blue-400">{formatCurrency(summary.total_sum_insured)}</p>
           </div>
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Annual Premium</p>
-            <p className="text-3xl font-bold text-purple-400">{formatCurrency(summary.total_annual_premium)}</p>
+            <p className="finance-summary-value font-bold text-purple-400">{formatCurrency(summary.total_annual_premium)}</p>
           </div>
         </div>
       )}
@@ -262,7 +266,7 @@ export default function InsurancePage() {
                     <Pencil size={14} />
                   </button>
                   <button
-                    onClick={() => handleDeletePolicy(policy)}
+                    onClick={() => setPolicyToDelete(policy)}
                     title="Delete policy"
                     aria-label={`Delete ${policy.policy_name}`}
                     className="grid h-8 w-8 place-items-center rounded-md border border-rose-400/15 bg-rose-500/[0.06] text-rose-300 transition hover:bg-rose-500/15"
@@ -273,14 +277,14 @@ export default function InsurancePage() {
               </div>
 
               <div className="mt-5 grid grid-cols-[1.2fr_0.8fr] gap-2">
-                <div className="finance-card-feature p-3.5">
+                <div className="finance-card-feature min-w-0 p-3.5">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Sum insured</p>
-                  <p className="mt-1 text-xl font-bold text-white">{formatCurrency(policy.sum_insured)}</p>
+                  <p className="finance-detail-value mt-1 font-bold text-white">{formatCurrency(policy.sum_insured)}</p>
                   <p className="mt-1 truncate text-[10px] text-slate-500">{policy.coverage_type || 'Coverage details not set'}</p>
                 </div>
-                <div className="rounded-lg border border-white/[0.06] bg-black/10 p-3.5">
+                <div className="min-w-0 rounded-lg border border-white/[0.06] bg-black/10 p-3.5">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Annual premium</p>
-                  <p className="finance-accent-info mt-1 text-lg font-bold">{formatCurrency(policy.annual_premium)}</p>
+                  <p className="finance-accent-info finance-detail-value mt-1 font-bold">{formatCurrency(policy.annual_premium)}</p>
                   <p className="mt-1 truncate text-[10px] text-slate-500">{formatCurrency(installment)} · {frequencyLabels[frequency] || frequency}</p>
                 </div>
               </div>
@@ -369,11 +373,11 @@ export default function InsurancePage() {
                 <input
                   type="number"
                   value={newPolicy.sum_insured}
-                  onChange={(e) => setNewPolicy({...newPolicy, sum_insured: e.target.value === '' ? 0 : Number(e.target.value)})}
-                  placeholder="0"
+                  onChange={(e) => setNewPolicy({...newPolicy, sum_insured: e.target.value})}
+                  placeholder="Enter sum insured"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newPolicy.sum_insured, currency)}</p>
+                {newPolicy.sum_insured !== '' && <p className="text-xs text-slate-400 mt-1">{inrInWords(newPolicy.sum_insured, currency)}</p>}
               </div>
 
               <div>
@@ -381,11 +385,11 @@ export default function InsurancePage() {
                 <input
                   type="number"
                   value={newPolicy.annual_premium}
-                  onChange={(e) => setNewPolicy({...newPolicy, annual_premium: e.target.value === '' ? 0 : Number(e.target.value)})}
-                  placeholder="0"
+                  onChange={(e) => setNewPolicy({...newPolicy, annual_premium: e.target.value})}
+                  placeholder="Enter annual premium"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newPolicy.annual_premium, currency)}</p>
+                {newPolicy.annual_premium !== '' && <p className="text-xs text-slate-400 mt-1">{inrInWords(newPolicy.annual_premium, currency)}</p>}
               </div>
 
               <div className="contents">
@@ -453,7 +457,7 @@ export default function InsurancePage() {
                   type="number"
                   min="0"
                   value={newPolicy.dependents_covered}
-                  onChange={(e) => setNewPolicy({...newPolicy, dependents_covered: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value))})}
+                  onChange={(e) => setNewPolicy({...newPolicy, dependents_covered: e.target.value === '' ? '' : Math.max(0, Number(e.target.value))})}
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
               </div>
@@ -515,6 +519,14 @@ export default function InsurancePage() {
             </div>
           </div>
         </div>
+      )}
+      {policyToDelete && (
+        <ConfirmDialog
+          title={`Delete "${policyToDelete.policy_name}"?`}
+          description="This insurance policy will be permanently deleted. This cannot be undone."
+          onCancel={() => setPolicyToDelete(null)}
+          onConfirm={handleDeletePolicy}
+        />
       )}
     </div>
   );

@@ -101,5 +101,9 @@ def run_fire_calculator(payload: FireCalculatorInput):
         existing_monthly_investment=payload.existing_monthly_investment or 0.0,
         expected_pre_retire_return_pct=payload.expected_pre_retire_return_pct or 12.0,
         expected_post_retire_return_pct=payload.expected_post_retire_return_pct or 8.0,
-        expected_inflation_pct=payload.expected_inflation_pct or 6.0
+        expected_inflation_pct=(
+            payload.expected_inflation_pct
+            if payload.expected_inflation_pct is not None
+            else 6.0
+        )
     )

@@ -32,6 +32,19 @@ def calculate_time_to_fi_from_savings_rate(savings_rate_pct: float, return_rate:
         if savings_rate_pct < 80: return 8.0
         return 5.0
 
+def _normalize_insurance_type(value: Any) -> str:
+    if value is None:
+        return "OTHER"
+    normalized = str(value).strip().upper().replace(" ", "_")
+    if normalized in {"TERM", "TERM_LIFE", "LIFE", "TERM_INSURANCE"}:
+        return "TERM"
+    if normalized in {"HEALTH", "HEALTH_INSURANCE"}:
+        return "HEALTH"
+    if normalized in {"CRITICAL_ILLNESS", "CRITICAL_ILLNESS_INSURANCE"}:
+        return "CRITICAL_ILLNESS"
+    return normalized
+
+
 def compute_user_financial_health(user_id: str) -> Dict[str, Any]:
     """
     Aggregates user transactions, assets, liabilities, insurance, and profile to compute
@@ -82,18 +95,41 @@ def compute_user_financial_health(user_id: str) -> Dict[str, Any]:
     # Also fetch bank account balances
     accounts = fetch_all("SELECT * FROM accounts WHERE user_id = %s AND is_active = TRUE", (user_id,))
     bank_balances = sum(float(acc.get("balance") or 0.0) for acc in accounts)
+    total_assets += bank_balances
     total_liquid = emergency_fund_amount if emergency_fund_amount > 0 else liquid_assets + bank_balances
     
-    # 4. Fetch liabilities
+    # 4. Fetch liabilities across both debt tables to keep summaries aligned.
     liabilities = fetch_all("SELECT * FROM liabilities WHERE user_id = %s", (user_id,))
+    debts = fetch_all("SELECT * FROM debts WHERE user_id = %s", (user_id,))
     total_liabilities = sum(float(l.get("current_outstanding") or 0.0) for l in liabilities)
+    total_liabilities += sum(float(d.get("current_outstanding") or 0.0) for d in debts)
     
     net_worth = total_assets - total_liabilities
     
-    # 5. Fetch insurances
-    insurances = fetch_all("SELECT * FROM insurances WHERE user_id = %s AND is_active = TRUE", (user_id,))
-    term_cover = sum(float(i.get("sum_insured") or 0.0) for i in insurances if i.get("insurance_type") == 'TERM')
-    health_cover = sum(float(i.get("sum_insured") or 0.0) for i in insurances if i.get("insurance_type") == 'HEALTH')
+    # 5. Fetch insurances across both legacy and current policy tables.
+    legacy_insurances = fetch_all("SELECT * FROM insurances WHERE user_id = %s", (user_id,))
+    policy_rows = fetch_all("SELECT * FROM insurance_policies WHERE user_id = %s", (user_id,))
+    insurances = []
+    for row in legacy_insurances:
+        if row.get("is_active") is False:
+            continue
+        insurances.append(row)
+    for row in policy_rows:
+        status = str(row.get("status") or "ACTIVE").upper()
+        if status not in {"ACTIVE", "RENEWED", "PENDING", "PAID"}:
+            continue
+        insurances.append(row)
+
+    term_cover = sum(
+        float(i.get("sum_insured") or 0.0)
+        for i in insurances
+        if _normalize_insurance_type(i.get("insurance_type") or i.get("policy_type")) == 'TERM'
+    )
+    health_cover = sum(
+        float(i.get("sum_insured") or 0.0)
+        for i in insurances
+        if _normalize_insurance_type(i.get("insurance_type") or i.get("policy_type")) in {'HEALTH', 'CRITICAL_ILLNESS'}
+    )
     
     has_financial_data = any([
         monthly_income > 0,
@@ -151,14 +187,14 @@ def compute_user_financial_health(user_id: str) -> Dict[str, Any]:
     savings_rate_pct = round((actual_savings / monthly_income) * 100.0, 1) if monthly_income > 0 else 0.0
     time_to_fi = calculate_time_to_fi_from_savings_rate(savings_rate_pct) if monthly_income > 0 and monthly_expense > 0 else 0.0
     
-    displayed_savings_rate = target_savings_rate if target_savings_rate > 0 else savings_rate_pct
-    if displayed_savings_rate >= 40.0:
+    # Use actual savings rate as the primary figure; keep the profile target as a separate reference.
+    if savings_rate_pct >= 40.0:
         sr_score = 10.0
         sr_status = "Excellent"
-    elif displayed_savings_rate >= 20.0:
+    elif savings_rate_pct >= 20.0:
         sr_score = 7.0
         sr_status = "Good"
-    elif displayed_savings_rate >= 10.0:
+    elif savings_rate_pct >= 10.0:
         sr_score = 4.0
         sr_status = "Getting There"
     else:
@@ -247,7 +283,7 @@ def compute_user_financial_health(user_id: str) -> Dict[str, Any]:
         "emergency_fund_status": ef_status,
         
         # Savings Rate
-        "savings_rate_pct": displayed_savings_rate,
+        "savings_rate_pct": savings_rate_pct,
         "intended_savings_rate_pct": target_savings_rate,
         "savings_rate_status": sr_status,
         "monthly_income": round(monthly_income, 2),

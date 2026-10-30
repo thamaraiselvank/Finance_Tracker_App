@@ -33,6 +33,7 @@ class LiabilityUpdate(BaseModel):
 class LiabilityOut(LiabilityBase):
     id: UUID | str
     user_id: UUID | str
+    tenure_months: int = Field(..., ge=0)
     paid_percentage: float = 0.0
     created_at: Optional[datetime.datetime] = None
     updated_at: Optional[datetime.datetime] = None

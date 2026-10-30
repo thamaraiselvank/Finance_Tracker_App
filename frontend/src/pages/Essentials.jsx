@@ -17,6 +17,7 @@ import {
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import useCurrency from '../utils/useCurrency';
+import PageGuide from '../components/PageGuide';
 
 export default function Essentials({ hideAmounts }) {
   const { user, updateProfile } = useAuth();
@@ -153,6 +154,13 @@ export default function Essentials({ hideAmounts }) {
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Essentials</h1>
         <p className="text-xs text-slate-500 mt-0.5">Your scorecard: Essentials measures readiness; Insurance stores the policies behind it.</p>
       </div>
+
+      <PageGuide
+        title="Essentials: a financial readiness snapshot"
+        summary="This page combines profile details and recorded information into indicators such as savings rate, emergency runway, and coverage."
+        steps={['Keep profile income, expenses, age, and dependents current.', 'Check which indicators use transaction records versus profile estimates.', 'Use the score as a prompt to review details, not as a complete financial assessment.']}
+        terms={[{ term: 'Emergency runway', definition: 'How many months tracked liquid savings could cover essential expenses.' }, { term: 'Savings rate', definition: 'The share of income left after expenses for the period measured.' }]}
+      />
 
       {/* Financial Profile Accordion Header */}
       <div className="bg-white border border-slate-200/90 rounded-xl px-5 py-3 flex items-center justify-between shadow-2xs">

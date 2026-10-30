@@ -12,10 +12,12 @@ class DebtBase(BaseModel):
     tenure_months: Optional[int] = None
     monthly_emi: Optional[float] = Field(None, ge=0)
     start_date: Optional[datetime.date] = None
+    end_date: Optional[datetime.date] = None
+    total_interest_paid: float = Field(0, ge=0)
     creditor_name: Optional[str] = None
 
 class DebtCreate(DebtBase):
-    pass
+    tenure_months: Optional[int] = Field(None, gt=0)
 
 class DebtUpdate(BaseModel):
     debt_name: Optional[str] = None
@@ -23,18 +25,19 @@ class DebtUpdate(BaseModel):
     principal_amount: Optional[float] = Field(None, gt=0)
     current_outstanding: Optional[float] = Field(None, ge=0)
     interest_rate_pct: Optional[float] = Field(None, ge=0)
-    tenure_months: Optional[int] = None
+    tenure_months: Optional[int] = Field(None, gt=0)
     monthly_emi: Optional[float] = Field(None, ge=0)
+    start_date: Optional[datetime.date] = None
+    end_date: Optional[datetime.date] = None
+    total_interest_paid: Optional[float] = Field(None, ge=0)
     priority_payoff: Optional[bool] = None
     payoff_strategy: Optional[str] = None
 
 class DebtOut(DebtBase):
     id: UUID | str
     user_id: UUID | str
-    end_date: Optional[datetime.date] = None
     priority_payoff: bool = False
     payoff_strategy: str = "STANDARD"
-    total_interest_paid: float = 0.0
     created_at: Optional[datetime.datetime] = None
     updated_at: Optional[datetime.datetime] = None
 
@@ -42,6 +45,7 @@ class DebtPayoffPlan(BaseModel):
     debt_id: UUID | str
     debt_name: str
     current_outstanding: float
+    interest_rate_pct: float
     monthly_payment: float
     total_interest_if_minimum: float
     months_to_payoff: int

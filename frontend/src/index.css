@@ -691,3 +691,308 @@ body {
 .theme-light .text-pink-600 {
   opacity: 1;
 }
+
+.calculator-field-label {
+  display: flex;
+  min-height: 2.4em;
+  align-items: flex-end;
+  line-height: 1.2;
+}
+
+.calculator-result-card {
+  border: 1px solid var(--panel-border);
+  background: var(--panel-muted);
+}
+
+.calculator-result-label {
+  display: block;
+  color: var(--text-secondary);
+}
+
+.calculator-result-value {
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.calculator-result-caption {
+  display: block;
+  color: var(--text-secondary);
+}
+
+.calculator-data-table {
+  border-color: var(--panel-border);
+  background: var(--panel-bg);
+  color: var(--text-primary);
+}
+
+.calculator-data-table th,
+.calculator-data-table td {
+  overflow-wrap: anywhere;
+}
+
+.calculator-data-table th {
+  background: var(--panel-strong);
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.calculator-data-table tbody tr {
+  border-top: 1px solid var(--panel-border);
+}
+
+.calculator-data-table tbody tr:nth-child(even) {
+  background: var(--panel-muted);
+}
+
+.import-account-notice {
+  color: #78350f;
+  border-color: #fcd34d;
+  background-color: #fffbeb;
+}
+
+.import-account-notice button {
+  color: #065f46;
+}
+
+.theme-dark .calculator-result-card {
+  background: linear-gradient(145deg, rgba(20, 35, 51, 0.96), rgba(13, 27, 42, 0.96));
+  border-color: rgba(148, 163, 184, 0.28);
+}
+
+.theme-dark .calculator-result-label,
+.theme-dark .calculator-result-caption {
+  color: #c4d5e7;
+}
+
+.theme-dark .calculator-result-value {
+  color: #f8fafc;
+}
+
+.theme-dark .calculator-data-table th {
+  background: #17283a;
+}
+
+.theme-dark .calculator-data-table tbody tr:nth-child(even) {
+  background: rgba(148, 163, 184, 0.07);
+}
+
+@media (max-width: 639px) {
+  .calculator-data-table th,
+  .calculator-data-table td {
+    padding: 0.4rem 0.35rem;
+    font-size: 0.65rem;
+  }
+}
+
+.theme-dark .import-account-notice {
+  color: #fef3c7;
+  border-color: rgba(251, 191, 36, 0.45);
+  background-color: rgba(146, 64, 14, 0.28);
+}
+
+.theme-dark .import-account-notice button {
+  color: #6ee7b7;
+}
+
+.session-timer-control {
+  border-color: var(--panel-border);
+  background: var(--panel-muted);
+  color: var(--text-secondary);
+}
+
+.session-refresh-button {
+  color: var(--text-secondary);
+}
+
+.session-refresh-button:hover {
+  background: rgba(16, 185, 129, 0.14);
+  color: var(--accent-emerald);
+}
+
+.session-timer-warning {
+  border-color: rgba(245, 158, 11, 0.6);
+  color: #b45309;
+}
+
+.theme-dark .session-timer-warning {
+  color: #fcd34d;
+}
+
+.session-refresh-error {
+  border-color: rgba(244, 63, 94, 0.35);
+  background: var(--panel-strong);
+  color: #be123c;
+}
+
+.theme-dark .session-refresh-error {
+  color: #fda4af;
+}
+
+.finance-summary-value {
+  min-width: 0;
+  font-size: clamp(1.25rem, 3.2vw, 1.875rem);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.finance-detail-value {
+  min-width: 0;
+  font-size: clamp(0.9rem, 2.2vw, 1.125rem);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 420px) {
+  .navbar-main {
+    flex-wrap: wrap;
+  }
+
+  .navbar-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .session-timer-control {
+    gap: 0.2rem;
+    padding: 0.25rem 0.35rem;
+  }
+}
+
+/* Keep the advisor chat readable when the global theme normalizes utility colors. */
+.theme-dark .ai-chat-panel {
+  background: var(--panel-bg) !important;
+  border-color: var(--panel-border) !important;
+}
+
+.theme-dark .ai-chat-header,
+.theme-dark .ai-chat-composer {
+  background: var(--panel-strong) !important;
+  border-color: var(--panel-border) !important;
+}
+
+.theme-dark .ai-chat-assistant-bubble {
+  background: #142538 !important;
+  color: #eaf4ff !important;
+}
+
+.theme-dark .ai-chat-action {
+  background: #12302d !important;
+  border-color: rgba(52, 211, 153, 0.38) !important;
+  color: #a7f3d0 !important;
+}
+
+.theme-dark .ai-chat-user-bubble {
+  color: #ffffff !important;
+}
+
+.theme-dark .ai-chat-disclosure {
+  color: var(--text-tertiary) !important;
+}
+
+.theme-light .ai-chat-user-bubble {
+  color: #ffffff !important;
+}
+
+.theme-light .ai-chat-action {
+  color: #065f46 !important;
+}
+
+.ai-response-content {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.ai-response-paragraph,
+.ai-response-label-line {
+  margin: 0.25rem 0 0.55rem;
+}
+
+.ai-response-heading {
+  margin: 0.45rem 0 0.3rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.ai-response-list {
+  margin: 0.35rem 0 0.65rem;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+ol.ai-response-list {
+  list-style: decimal;
+}
+
+.ai-response-list li + li {
+  margin-top: 0.2rem;
+}
+
+.ai-response-table-wrap {
+  max-width: 100%;
+  margin: 0.55rem 0 0.75rem;
+  overflow-x: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 0.65rem;
+}
+
+.ai-response-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-response-table th,
+.ai-response-table td {
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid var(--panel-border);
+  white-space: normal;
+}
+
+.ai-response-table th {
+  background: var(--panel-strong);
+  font-weight: 700;
+}
+
+.ai-response-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.ai-inline-code {
+  border-radius: 0.25rem;
+  background: var(--panel-strong);
+  padding: 0.05rem 0.25rem;
+  font-size: 0.9em;
+}
+
+.ai-quota-status {
+  border-top: 1px solid var(--panel-border);
+  color: var(--text-secondary);
+}
+
+.ai-quota-track {
+  background: rgba(100, 116, 139, 0.2);
+}
+
+.theme-dark .ai-quota-track {
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.ai-quota-fill {
+  background: #059669;
+}
+
+.ai-quota-fill.is-exhausted {
+  background: #e11d48;
+}
+
+.theme-dark .ai-quota-fill {
+  background: #34d399;
+}
+
+.theme-dark .ai-quota-fill.is-exhausted {
+  background: #fb7185;
+}

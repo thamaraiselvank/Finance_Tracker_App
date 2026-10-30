@@ -14,25 +14,57 @@ import {
   Trash2
 } from 'lucide-react';
 import { 
-  AreaChart, 
-  Area, 
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
   XAxis, 
   YAxis, 
   Tooltip, 
-  ResponsiveContainer, 
-  PieChart, 
-  Pie, 
-  Cell 
+  ResponsiveContainer
 } from 'recharts';
 import api from '../services/api';
 import useCurrency from '../utils/useCurrency';
+import PageGuide from '../components/PageGuide';
 
-const PIE_COLORS = ['#10B981', '#EF4444'];
+function CalculatorDataTable({ rows, columns, emptyMessage = 'No yearly values available.' }) {
+  return (
+    <div className="calculator-data-table rounded-xl border border-slate-200">
+      <table className="w-full table-fixed text-left text-xs">
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column.label} scope="col" className="sticky top-0 whitespace-nowrap px-3 py-2 text-right first:text-left">
+                {column.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows?.length ? rows.map((row, rowIndex) => (
+            <tr key={row.year ?? row.age ?? rowIndex}>
+              {columns.map((column, columnIndex) => (
+                <td key={column.label} className={`px-3 py-2 ${columnIndex === 0 ? 'text-left font-semibold' : 'text-right tabular-nums'}`}>
+                  {column.render(row)}
+                </td>
+              ))}
+            </tr>
+          )) : (
+            <tr>
+              <td colSpan={columns.length} className="px-3 py-4 text-center text-slate-500">{emptyMessage}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export default function Calculators({ setActiveTab, hideAmounts }) {
   const { formatCurrency: formatAmount, currencySymbol } = useCurrency();
   const [selectedCalc, setSelectedCalc] = useState(null); // 'fire', 'sip', 'lumpsum', 'cagr', 'xirr', 'emi', 'swp'
   const [result, setResult] = useState(null);
+  const [resultInputs, setResultInputs] = useState(null);
   const [loading, setLoading] = useState(false);
 
   // Forms
@@ -64,6 +96,15 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
     return formatAmount(val);
   };
 
+  const formatChartCurrency = (value) => {
+    if (hideAmounts) return '•••';
+    const compactAmount = new Intl.NumberFormat(undefined, {
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    }).format(Number(value) || 0);
+    return `${currencySymbol}${compactAmount}`;
+  };
+
   const handleRunCalc = async (type) => {
     setLoading(true);
     setResult(null);
@@ -77,6 +118,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
       else if (type === 'fire') res = await api.post('/calculators/fire', fireForm);
       else if (type === 'xirr') res = await api.post('/calculators/xirr', { cash_flows: xirrCashflows });
       setResult(res.data);
+      setResultInputs(type === 'fire' ? { ...fireForm } : type === 'swp' ? { ...swpForm } : null);
     } catch (err) {
       alert(err.response?.data?.detail || 'Calculation error');
     } finally {
@@ -127,6 +169,20 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
         </button>
       </div>
 
+      <PageGuide
+        title={selectedCalc ? `${selectedCalc.toUpperCase()} calculator` : 'Calculators: explore estimates'}
+        summary={!selectedCalc ? 'Each calculator answers a different planning question. Start with sample values, then enter your own assumptions.' : ({
+          sip: 'Estimate how regular contributions may grow under an assumed return and time period.',
+          lumpsum: 'Estimate how a one-time amount may grow under an assumed return.',
+          cagr: 'Calculate the smoothed annual growth rate between a starting and ending value.',
+          xirr: 'Estimate annualized return when investments or withdrawals happen on different dates.',
+          emi: 'Estimate a loan payment and the interest implied by the amount, rate, and term.',
+          swp: 'Explore how scheduled withdrawals and assumptions may affect a portfolio over time.',
+          fire: 'Estimate a retirement corpus and savings path using expenses and return assumptions.',
+        })[selectedCalc] || 'Use the inputs to explore a financial estimate.'}
+        steps={!selectedCalc ? ['Open a calculator card to see its inputs.', 'Change one assumption at a time to understand its effect.', 'Treat results as estimates, not promised outcomes.'] : ['Check the example values and replace them with your own assumptions.', 'Run the calculator and review how the result changes when inputs change.', 'Actual rates, costs, inflation, and returns can differ from assumptions.']}
+      />
+
       {/* CALCULATOR HUB VIEW */}
       {!selectedCalc && (
         <div className="space-y-8">
@@ -141,7 +197,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                   return (
                     <div
                       key={card.id}
-                      onClick={() => { setSelectedCalc(card.id); setResult(null); }}
+                      onClick={() => { setSelectedCalc(card.id); setResult(null); setResultInputs(null); }}
                       className="bg-white border border-slate-200/90 hover:border-emerald-300 rounded-2xl p-5 shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between group"
                     >
                       <div className="flex items-start gap-4">
@@ -169,10 +225,10 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
 
       {/* INTERACTIVE CALCULATOR RUNNER */}
       {selectedCalc && (
-        <div className="space-y-6">
+        <div className="calculator-results space-y-6">
           <div className="flex items-center justify-between">
             <button
-              onClick={() => { setSelectedCalc(null); setResult(null); }}
+              onClick={() => { setSelectedCalc(null); setResult(null); setResultInputs(null); }}
               className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-emerald-800 transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" /> Back to Calculators
@@ -267,7 +323,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       <input
                         type="number"
                         value={fireForm.expected_inflation_pct}
-                        onChange={(e) => setFireForm({ ...fireForm, expected_inflation_pct: parseFloat(e.target.value) || 6 })}
+                        onChange={(e) => setFireForm({ ...fireForm, expected_inflation_pct: parseFloat(e.target.value) || 0 })}
                         className="w-full px-2 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -287,9 +343,9 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-bold"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 items-end gap-3">
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Expected Return (% p.a.)</label>
+                      <label className="calculator-field-label block font-semibold text-slate-700 mb-1">Expected Return (% p.a.)</label>
                       <input
                         type="number"
                         value={sipForm.expected_return_rate_pct}
@@ -298,7 +354,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Time Period (Years)</label>
+                      <label className="calculator-field-label block font-semibold text-slate-700 mb-1">Time Period (Years)</label>
                       <input
                         type="number"
                         value={sipForm.time_period_years}
@@ -367,9 +423,9 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-bold"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 items-end gap-3">
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Return Rate (% p.a.)</label>
+                      <label className="calculator-field-label block font-semibold text-slate-700 mb-1">Return Rate (% p.a.)</label>
                       <input
                         type="number"
                         value={lumpForm.expected_return_rate_pct}
@@ -378,7 +434,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Time Period (Years)</label>
+                      <label className="calculator-field-label block font-semibold text-slate-700 mb-1">Time Period (Years)</label>
                       <input
                         type="number"
                         value={lumpForm.time_period_years}
@@ -386,6 +442,64 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 5. SWP Calculator Form */}
+              {selectedCalc === 'swp' && (
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Initial Investment ({currencySymbol})</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={swpForm.total_investment}
+                      onChange={(e) => setSwpForm({ ...swpForm, total_investment: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Monthly Withdrawal ({currencySymbol})</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={swpForm.monthly_withdrawal}
+                      onChange={(e) => setSwpForm({ ...swpForm, monthly_withdrawal: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 items-end gap-3">
+                    <div>
+                      <label className="calculator-field-label block font-semibold text-slate-700 mb-1">Expected Return (% p.a.)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={swpForm.expected_return_rate_pct}
+                        onChange={(e) => setSwpForm({ ...swpForm, expected_return_rate_pct: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="calculator-field-label block font-semibold text-slate-700 mb-1">Annual Inflation (%)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={swpForm.annual_inflation_pct}
+                        onChange={(e) => setSwpForm({ ...swpForm, annual_inflation_pct: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Time Period (Years)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={swpForm.time_period_years}
+                      onChange={(e) => setSwpForm({ ...swpForm, time_period_years: parseInt(e.target.value, 10) || 1 })}
+                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
+                    />
                   </div>
                 </div>
               )}
@@ -429,7 +543,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                 <div className="space-y-3 text-xs">
                   <p className="text-slate-500 text-[11px]">Enter negative amount for investments and positive amount for final value / returns.</p>
                   {xirrCashflows.map((cf, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
+                    <div key={idx} className="grid grid-cols-[minmax(0,1fr)_minmax(0,7rem)_auto] items-center gap-2">
                       <input
                         type="date"
                         value={cf.date}
@@ -438,7 +552,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                           updated[idx].date = e.target.value;
                           setXirrCashflows(updated);
                         }}
-                        className="px-2 py-1 border border-slate-300 rounded text-xs"
+                        className="min-w-0 w-full px-2 py-1 border border-slate-300 rounded text-xs"
                       />
                       <input
                         type="number"
@@ -449,7 +563,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                           updated[idx].amount = parseFloat(e.target.value) || 0;
                           setXirrCashflows(updated);
                         }}
-                        className="px-2 py-1 border border-slate-300 rounded text-xs w-28"
+                        className="min-w-0 w-full px-2 py-1 border border-slate-300 rounded text-xs"
                       />
                       <button
                         onClick={() => setXirrCashflows(xirrCashflows.filter((_, i) => i !== idx))}
@@ -487,21 +601,26 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                   {/* FIRE Results */}
                   {selectedCalc === 'fire' && (
                     <div className="space-y-6">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-                          <span className="text-[10px] font-bold text-emerald-900 uppercase">Standard FIRE Corpus</span>
-                          <p className="text-xl font-extrabold text-emerald-900 mt-1">{formatCurrency(result.standard_fire_corpus)}</p>
-                          <span className="text-[10px] text-emerald-700">25x inflation-adjusted</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                        <div className="calculator-result-card p-4 rounded-xl">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Standard FIRE Corpus</span>
+                          <p className="calculator-result-value mt-1 text-xl font-extrabold">{formatCurrency(result.standard_fire_corpus)}</p>
+                          <span className="calculator-result-caption text-[10px]">Inflation-adjusted target</span>
                         </div>
-                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                          <span className="text-[10px] font-bold text-blue-900 uppercase">Projected Portfolio</span>
-                          <p className="text-xl font-extrabold text-blue-900 mt-1">{formatCurrency(result.projected_corpus_at_retire_age)}</p>
-                          <span className="text-[10px] text-blue-700">At age {fireForm.target_retirement_age}</span>
+                        <div className="calculator-result-card p-4 rounded-xl">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Projected Portfolio</span>
+                          <p className="calculator-result-value mt-1 text-xl font-extrabold">{formatCurrency(result.projected_corpus_at_retire_age)}</p>
+                          <span className="calculator-result-caption text-[10px]">At age {resultInputs?.target_retirement_age ?? fireForm.target_retirement_age}</span>
                         </div>
-                        <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
-                          <span className="text-[10px] font-bold text-purple-900 uppercase">Required Monthly SIP</span>
-                          <p className="text-xl font-extrabold text-purple-900 mt-1">{formatCurrency(result.required_monthly_sip)}</p>
-                          <span className="text-[10px] text-purple-700">To bridge shortfall</span>
+                        <div className="calculator-result-card p-4 rounded-xl">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Required Monthly SIP</span>
+                          <p className="calculator-result-value mt-1 text-xl font-extrabold">{formatCurrency(result.required_monthly_sip)}</p>
+                          <span className="calculator-result-caption text-[10px]">To bridge shortfall</span>
+                        </div>
+                        <div className="calculator-result-card p-4 rounded-xl">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Future Annual Expenses</span>
+                          <p className="calculator-result-value mt-1 text-xl font-extrabold">{formatCurrency(result.future_annual_expense_at_retirement)}</p>
+                          <span className="calculator-result-caption text-[10px]">At {resultInputs?.expected_inflation_pct ?? 6}% annual inflation</span>
                         </div>
                       </div>
 
@@ -510,14 +629,43 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                         <h4 className="text-xs font-bold text-slate-700 uppercase">FIRE Milestones</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                           {(result.milestones || []).map((m, i) => (
-                            <div key={i} className="p-3 border border-slate-200 rounded-xl bg-slate-50">
-                              <p className="font-bold text-slate-900">{m.type}</p>
-                              <p className="text-base font-extrabold text-emerald-800 mt-1">{formatCurrency(m.required_corpus)}</p>
-                              <p className="text-[11px] text-slate-500 mt-0.5">Est. Age: {m.projected_age} yrs</p>
+                            <div key={i} className="calculator-result-card p-3 rounded-xl">
+                              <p className="calculator-result-label font-bold">{m.type}</p>
+                              <p className="calculator-result-value mt-1 text-base font-extrabold">{formatCurrency(m.required_corpus)}</p>
+                              <p className="calculator-result-caption mt-0.5 text-[11px]">Est. Age: {m.projected_age} yrs</p>
                             </div>
                           ))}
                         </div>
                       </div>
+
+                      {result.yearly_progression?.length > 0 && (
+                        <div>
+                          <h4 className="mb-2 text-xs font-bold uppercase text-slate-700">Projected Portfolio vs FIRE Target</h4>
+                          <div className="space-y-3">
+                            <div className="h-64 min-w-0">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={result.yearly_progression} margin={{ top: 8, right: 12, bottom: 4, left: 8 }}>
+                                  <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" />
+                                  <XAxis dataKey="age" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} tickLine={false} />
+                                  <YAxis width={72} tickFormatter={formatChartCurrency} tick={{ fontSize: 10, fill: 'var(--text-secondary)' }} tickLine={false} />
+                                  <Tooltip formatter={(value) => formatCurrency(value)} labelFormatter={(age) => `Age ${age}`} />
+                                  <Legend wrapperStyle={{ fontSize: 11, color: 'var(--text-primary)' }} />
+                                  <Line type="monotone" dataKey="projected_portfolio" name="Projected portfolio" stroke="#10b981" strokeWidth={2.5} dot={false} />
+                                  <Line type="monotone" dataKey="target_fire_corpus" name="FIRE target" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            </div>
+                            <CalculatorDataTable
+                              rows={result.yearly_progression}
+                              columns={[
+                                { label: 'Age', render: (row) => row.age },
+                                { label: 'Portfolio', render: (row) => formatCurrency(row.projected_portfolio) },
+                                { label: 'FIRE target', render: (row) => formatCurrency(row.target_fire_corpus) },
+                              ]}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -525,31 +673,142 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                   {selectedCalc === 'sip' && (
                     <div className="space-y-6">
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase">Total Invested</span>
-                          <p className="text-xl font-bold text-slate-900 mt-1">{formatCurrency(result.total_invested)}</p>
+                        <div className="calculator-result-card rounded-xl p-4">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Total Invested</span>
+                          <p className="calculator-result-value mt-1 text-xl font-bold">{formatCurrency(result.total_invested)}</p>
                         </div>
-                        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-                          <span className="text-[10px] font-bold text-emerald-800 uppercase">Est. Returns</span>
-                          <p className="text-xl font-bold text-emerald-800 mt-1">{formatCurrency(result.estimated_returns)}</p>
+                        <div className="calculator-result-card rounded-xl p-4">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Est. Returns</span>
+                          <p className="calculator-result-value mt-1 text-xl font-bold">{formatCurrency(result.estimated_returns)}</p>
                         </div>
-                        <div className="p-4 bg-emerald-900 text-white rounded-xl">
-                          <span className="text-[10px] font-bold text-emerald-200 uppercase">Total Future Value</span>
-                          <p className="text-xl font-extrabold text-white mt-1">{formatCurrency(result.total_value)}</p>
+                        <div className="calculator-result-card rounded-xl p-4">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Total Future Value</span>
+                          <p className="calculator-result-value mt-1 text-xl font-extrabold">{formatCurrency(result.total_value)}</p>
                         </div>
                       </div>
 
                       {/* Growth Area Chart */}
-                      <div className="h-56">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={result.yearly_schedule || []}>
-                            <XAxis dataKey="year" tickFormatter={(y) => `Y${y}`} />
-                            <YAxis tickFormatter={(v) => formatCurrency(v)} />
-                            <Tooltip formatter={(v) => formatCurrency(v)} />
-                            <Area type="monotone" dataKey="total_invested" stackId="1" stroke="#94a3b8" fill="#cbd5e1" />
-                            <Area type="monotone" dataKey="returns_earned" stackId="1" stroke="#10b981" fill="#86efac" />
-                          </AreaChart>
-                        </ResponsiveContainer>
+                      <div className="space-y-3">
+                        <div className="h-64 min-w-0">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={result.yearly_schedule || []} margin={{ top: 8, right: 12, bottom: 4, left: 8 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" />
+                              <XAxis dataKey="year" tickFormatter={(year) => `Y${year}`} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} tickLine={false} />
+                              <YAxis width={72} tickFormatter={formatChartCurrency} tick={{ fontSize: 10, fill: 'var(--text-secondary)' }} tickLine={false} />
+                              <Tooltip formatter={(value) => formatCurrency(value)} labelFormatter={(year) => `Year ${year}`} />
+                              <Legend wrapperStyle={{ fontSize: 11, color: 'var(--text-primary)' }} />
+                              <Line type="monotone" dataKey="total_invested" name="Total invested" stroke="#94a3b8" strokeWidth={2} dot={false} />
+                              <Line type="monotone" dataKey="future_value" name="Projected value" stroke="#10b981" strokeWidth={2.5} dot={false} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <CalculatorDataTable
+                          rows={result.yearly_schedule}
+                          columns={[
+                            { label: 'Year', render: (row) => row.year },
+                            { label: 'Invested', render: (row) => formatCurrency(row.total_invested) },
+                            { label: 'Projected', render: (row) => formatCurrency(row.future_value) },
+                            { label: 'Returns', render: (row) => formatCurrency(row.returns_earned) },
+                          ]}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Lumpsum Results */}
+                  {selectedCalc === 'lumpsum' && (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="calculator-result-card rounded-xl p-4">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Amount Invested</span>
+                          <p className="calculator-result-value mt-1 text-xl font-bold">{formatCurrency(result.total_invested)}</p>
+                        </div>
+                        <div className="calculator-result-card rounded-xl p-4">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Estimated Returns</span>
+                          <p className="calculator-result-value mt-1 text-xl font-bold">{formatCurrency(result.estimated_returns)}</p>
+                        </div>
+                        <div className="calculator-result-card rounded-xl p-4">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Projected Value</span>
+                          <p className="calculator-result-value mt-1 text-xl font-extrabold">{formatCurrency(result.total_value)}</p>
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="mb-2 text-xs font-bold uppercase text-slate-700">Investment Growth</h4>
+                        <div className="space-y-3">
+                          <div className="h-64 min-w-0">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={result.yearly_schedule || []} margin={{ top: 8, right: 12, bottom: 4, left: 8 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" />
+                                <XAxis dataKey="year" tickFormatter={(year) => `Y${year}`} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} tickLine={false} />
+                                <YAxis width={72} tickFormatter={formatChartCurrency} tick={{ fontSize: 10, fill: 'var(--text-secondary)' }} tickLine={false} />
+                                <Tooltip formatter={(value) => formatCurrency(value)} labelFormatter={(year) => `Year ${year}`} />
+                                <Legend wrapperStyle={{ fontSize: 11, color: 'var(--text-primary)' }} />
+                                <Line type="monotone" dataKey="total_invested" name="Invested" stroke="#94a3b8" strokeWidth={2} dot={false} />
+                                <Line type="monotone" dataKey="future_value" name="Projected value" stroke="#10b981" strokeWidth={2.5} dot={false} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <CalculatorDataTable
+                            rows={result.yearly_schedule}
+                            columns={[
+                              { label: 'Year', render: (row) => row.year },
+                              { label: 'Invested', render: (row) => formatCurrency(row.total_invested) },
+                              { label: 'Projected', render: (row) => formatCurrency(row.future_value) },
+                              { label: 'Returns', render: (row) => formatCurrency(row.returns_earned) },
+                            ]}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SWP Results */}
+                  {selectedCalc === 'swp' && (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="calculator-result-card rounded-xl p-4">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Total Withdrawn</span>
+                          <p className="calculator-result-value mt-1 text-xl font-bold">{formatCurrency(result.total_withdrawn)}</p>
+                        </div>
+                        <div className="calculator-result-card rounded-xl p-4">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Remaining Balance</span>
+                          <p className="calculator-result-value mt-1 text-xl font-bold">{formatCurrency(result.final_balance)}</p>
+                        </div>
+                        <div className="calculator-result-card rounded-xl p-4">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Annual Inflation</span>
+                          <p className="calculator-result-value mt-1 text-xl font-bold">{resultInputs?.annual_inflation_pct ?? 6}%</p>
+                          <span className="calculator-result-caption text-[10px]">
+                            {result.depleted_in_years
+                              ? `Corpus depleted after ${result.depleted_in_years} years`
+                              : `Projected over ${resultInputs?.time_period_years ?? 20} years`}
+                          </span>
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="mb-2 text-xs font-bold uppercase text-slate-700">Withdrawal and Corpus by Year</h4>
+                        <div className="space-y-3">
+                          <div className="h-64 min-w-0">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={result.schedule || []} margin={{ top: 8, right: 12, bottom: 4, left: 8 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" />
+                                <XAxis dataKey="year" tickFormatter={(year) => `Y${year}`} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} tickLine={false} />
+                                <YAxis width={72} tickFormatter={formatChartCurrency} tick={{ fontSize: 10, fill: 'var(--text-secondary)' }} tickLine={false} />
+                                <Tooltip formatter={(value) => formatCurrency(value)} labelFormatter={(year) => `Year ${year}`} />
+                                <Legend wrapperStyle={{ fontSize: 11, color: 'var(--text-primary)' }} />
+                                <Line type="monotone" dataKey="total_withdrawn" name="Cumulative withdrawn" stroke="#60a5fa" strokeWidth={2.5} dot={false} />
+                                <Line type="monotone" dataKey="remaining_balance" name="Remaining corpus" stroke="#10b981" strokeWidth={2.5} dot={false} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <CalculatorDataTable
+                            rows={result.schedule}
+                            columns={[
+                              { label: 'Year', render: (row) => row.year },
+                              { label: 'Withdrawn', render: (row) => formatCurrency(row.total_withdrawn) },
+                              { label: 'Balance', render: (row) => formatCurrency(row.remaining_balance) },
+                            ]}
+                          />
+                        </div>
                       </div>
                     </div>
                   )}
@@ -558,17 +817,17 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                   {selectedCalc === 'emi' && (
                     <div className="space-y-6">
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="p-4 bg-emerald-900 text-white rounded-xl">
-                          <span className="text-[10px] font-bold text-emerald-200 uppercase">Monthly EMI</span>
-                          <p className="text-2xl font-black text-white mt-1">{formatCurrency(result.monthly_emi)}</p>
+                        <div className="calculator-result-card rounded-xl p-4">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Monthly EMI</span>
+                          <p className="calculator-result-value mt-1 text-2xl font-black">{formatCurrency(result.monthly_emi)}</p>
                         </div>
-                        <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
-                          <span className="text-[10px] font-bold text-red-800 uppercase">Total Interest</span>
-                          <p className="text-xl font-bold text-red-700 mt-1">{formatCurrency(result.total_interest)}</p>
+                        <div className="calculator-result-card rounded-xl p-4">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Total Interest</span>
+                          <p className="calculator-result-value mt-1 text-xl font-bold">{formatCurrency(result.total_interest)}</p>
                         </div>
-                        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase">Total Payment</span>
-                          <p className="text-xl font-bold text-slate-900 mt-1">{formatCurrency(result.total_payment)}</p>
+                        <div className="calculator-result-card rounded-xl p-4">
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Total Payment</span>
+                          <p className="calculator-result-value mt-1 text-xl font-bold">{formatCurrency(result.total_payment)}</p>
                         </div>
                       </div>
                     </div>
@@ -576,19 +835,19 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
 
                   {/* XIRR Results */}
                   {selectedCalc === 'xirr' && (
-                    <div className="p-6 bg-emerald-50 border border-emerald-200 rounded-2xl text-center space-y-2">
-                      <span className="text-xs font-bold text-emerald-900 uppercase">Annualized Return (XIRR)</span>
-                      <p className="text-4xl font-black text-emerald-900">{result.xirr_percentage}%</p>
-                      <p className="text-xs text-emerald-700">Net Profit: {formatCurrency(result.net_profit)}</p>
+                    <div className="calculator-result-card rounded-2xl p-6 text-center space-y-2">
+                      <span className="calculator-result-label text-xs font-bold uppercase">Annualized Return (XIRR)</span>
+                      <p className="calculator-result-value text-4xl font-black">{result.xirr_percentage}%</p>
+                      <p className="calculator-result-caption text-xs">Net Profit: {formatCurrency(result.net_profit)}</p>
                     </div>
                   )}
 
                   {/* CAGR Results */}
                   {selectedCalc === 'cagr' && (
-                    <div className="p-6 bg-emerald-50 border border-emerald-200 rounded-2xl text-center space-y-2">
-                      <span className="text-xs font-bold text-emerald-900 uppercase">Compound Annual Growth Rate</span>
-                      <p className="text-4xl font-black text-emerald-900">{result.cagr_percentage}%</p>
-                      <p className="text-xs text-emerald-700">Absolute Growth: {result.absolute_growth_percentage}%</p>
+                    <div className="calculator-result-card rounded-2xl p-6 text-center space-y-2">
+                      <span className="calculator-result-label text-xs font-bold uppercase">Compound Annual Growth Rate</span>
+                      <p className="calculator-result-value text-4xl font-black">{result.cagr_percentage}%</p>
+                      <p className="calculator-result-caption text-xs">Absolute Growth: {result.absolute_growth_percentage}%</p>
                     </div>
                   )}
                 </div>

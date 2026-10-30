@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List
-from app.core.database import fetch_all, fetch_one, execute_returning, execute_query
+from app.core.database import fetch_all, fetch_one, execute_returning, execute_query, get_db_connection
 from app.core.security import get_current_user_id
 from app.schemas.account import AccountCreate, AccountOut, AccountUpdate
 
@@ -56,9 +56,26 @@ def update_account(account_id: str, payload: AccountUpdate, user_id: str = Depen
 
 @router.delete("/{account_id}")
 def delete_account(account_id: str, user_id: str = Depends(get_current_user_id)):
-    acc = fetch_one("SELECT * FROM accounts WHERE id = %s AND user_id = %s", (account_id, user_id))
-    if not acc:
-        raise HTTPException(status_code=404, detail="Account not found.")
-        
-    execute_query("DELETE FROM accounts WHERE id = %s AND user_id = %s", (account_id, user_id))
-    return {"message": "Account deleted successfully."}
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM accounts WHERE id = %s AND user_id = %s FOR UPDATE",
+                (account_id, user_id),
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Account not found.")
+
+            cur.execute(
+                "DELETE FROM transactions WHERE account_id = %s AND user_id = %s",
+                (account_id, user_id),
+            )
+            deleted_transactions = cur.rowcount
+            cur.execute(
+                "DELETE FROM accounts WHERE id = %s AND user_id = %s",
+                (account_id, user_id),
+            )
+
+    return {
+        "message": "Account and linked transactions deleted successfully.",
+        "deleted_transactions": deleted_transactions,
+    }

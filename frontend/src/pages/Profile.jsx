@@ -3,6 +3,7 @@ import { User, Mail, Briefcase, Landmark, PiggyBank, Shield, Heart, Save, Pencil
 import { useAuth } from '../context/AuthContext';
 import { inrInWords } from '../utils/numberWords';
 import { formatCurrency, getCurrencySymbol } from '../utils/currency';
+import PageGuide from '../components/PageGuide';
 
 export default function Profile() {
   const { user, updateProfile } = useAuth();
@@ -96,6 +97,12 @@ export default function Profile() {
           {saving ? 'Saving...' : isEditing ? 'Save changes' : 'Edit profile'}
         </button>
       </div>
+
+      <PageGuide
+        title="Profile: keep planning assumptions current"
+        summary="Your currency, age, income, expenses, and dependents can affect summaries and estimates across the app."
+        steps={['Review the values shown here.', 'Edit only the fields you know; current inputs make estimates more useful.']}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_1.5fr] gap-6">
         <div className="glass-panel p-6">

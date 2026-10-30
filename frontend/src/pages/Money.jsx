@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import useCurrency from '../utils/useCurrency';
+import ConfirmDialog from '../components/ConfirmDialog';
+import PageGuide from '../components/PageGuide';
 
 const formatLocalDate = (date) => (
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -47,6 +49,9 @@ export default function Money({ hideAmounts }) {
   const [categoriesError, setCategoriesError] = useState('');
   const categoriesRequestVersion = useRef(0);
   const [accounts, setAccounts] = useState([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [accountsError, setAccountsError] = useState('');
+  const accountRequestVersion = useRef(0);
   const [budgets, setBudgets] = useState([]);
   const [budgetDrafts, setBudgetDrafts] = useState({});
   const [budgetsLoading, setBudgetsLoading] = useState(false);
@@ -71,9 +76,18 @@ export default function Money({ hideAmounts }) {
     start: getCurrentMonthStart(),
     end: formatLocalDate(new Date()),
   }));
+  const transactionFilters = useRef({
+    filterType,
+    selectedAccountId,
+    searchQuery,
+    startDate: dateRange.start,
+    endDate: dateRange.end,
+  });
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState(null);
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
   const [showAddAccountModal, setShowAddAccountModal] = useState(false);
+  const [editingAccount, setEditingAccount] = useState(null);
   const [deleteModal, setDeleteModal] = useState(null);
 
   // Form State
@@ -100,7 +114,7 @@ export default function Money({ hideAmounts }) {
   const [newAccountForm, setNewAccountForm] = useState({
     name: '',
     account_type: 'SAVINGS',
-    balance: '0',
+    balance: '',
     institution: '',
   });
 
@@ -142,17 +156,12 @@ export default function Money({ hideAmounts }) {
     const summaryRequest = fetchSummary();
     const categoriesRequest = fetchCategories();
     const results = await Promise.allSettled([
-      api.get('/accounts'),
+      fetchAccounts(),
       api.get('/transactions/months'),
     ]);
     if (requestVersion !== monthRequestVersion.current) return;
 
-    const [accountsResult, monthsResult] = results;
-    if (accountsResult.status === 'fulfilled') {
-      setAccounts(accountsResult.value.data);
-    } else {
-      console.error('Failed to fetch accounts:', accountsResult.reason);
-    }
+    const [, monthsResult] = results;
     if (monthsResult.status === 'fulfilled') {
       setMonthBuckets(monthsResult.value.data || []);
     } else {
@@ -160,6 +169,28 @@ export default function Money({ hideAmounts }) {
       setTransactionListError('Unable to load the transaction list. Please try again.');
     }
     await Promise.all([categoriesRequest, summaryRequest]);
+  };
+
+  const fetchAccounts = async () => {
+    const requestVersion = ++accountRequestVersion.current;
+    setAccountsLoading(true);
+    setAccountsError('');
+    try {
+      const response = await api.get('/accounts');
+      if (requestVersion === accountRequestVersion.current) {
+        setAccounts(Array.isArray(response.data) ? response.data : []);
+        setAccountsError('');
+      }
+    } catch (err) {
+      console.error('Failed to fetch accounts:', err);
+      if (requestVersion === accountRequestVersion.current) {
+        setAccountsError('Unable to load accounts. Please try again.');
+      }
+    } finally {
+      if (requestVersion === accountRequestVersion.current) {
+        setAccountsLoading(false);
+      }
+    }
   };
 
   const retryFetchCategories = async () => {
@@ -195,17 +226,17 @@ export default function Money({ hideAmounts }) {
     }
   };
 
-  const fetchMonthTransactions = async (year, monthIndex) => {
-    const monthKey = `${year}-${monthIndex}`;
+  const fetchMonthTransactions = async (year, monthNumber) => {
+    const monthKey = `${year}-${String(monthNumber).padStart(2, '0')}`;
     if (monthDataMap[monthKey]) return;
     const requestVersion = monthRequestVersion.current;
 
     setLoadingMonths((prev) => ({ ...prev, [monthKey]: true }));
 
     try {
-      const monthStart = `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
-      const lastDay = new Date(year, monthIndex + 1, 0).getDate();
-      const monthEnd = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      const monthStart = `${year}-${String(monthNumber).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, monthNumber, 0).getDate();
+      const monthEnd = `${year}-${String(monthNumber).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
       const startDate = dateRange.start > monthStart ? dateRange.start : monthStart;
       const endDate = dateRange.end < monthEnd ? dateRange.end : monthEnd;
 
@@ -222,7 +253,7 @@ export default function Money({ hideAmounts }) {
 
       if (requestVersion === monthRequestVersion.current) {
         setMonthDataMap((prev) => ({ ...prev, [monthKey]: res.data }));
-        setTransactions(res.data);
+        setTransactions(Array.isArray(res.data) ? res.data : []);
         setTransactionListError('');
       }
     } catch (err) {
@@ -242,6 +273,10 @@ export default function Money({ hideAmounts }) {
   }, []);
 
   useEffect(() => {
+    if (activeSubTab === 'accounts') fetchAccounts();
+  }, [activeSubTab]);
+
+  useEffect(() => {
     if (!accountSummaryInitialized.current) {
       accountSummaryInitialized.current = true;
       return;
@@ -250,6 +285,23 @@ export default function Money({ hideAmounts }) {
   }, [selectedAccountId, dateRange]);
 
   useEffect(() => {
+    const previousFilters = transactionFilters.current;
+    const filtersChanged = previousFilters.filterType !== filterType
+      || previousFilters.selectedAccountId !== selectedAccountId
+      || previousFilters.searchQuery !== searchQuery
+      || previousFilters.startDate !== dateRange.start
+      || previousFilters.endDate !== dateRange.end;
+
+    transactionFilters.current = {
+      filterType,
+      selectedAccountId,
+      searchQuery,
+      startDate: dateRange.start,
+      endDate: dateRange.end,
+    };
+
+    if (!filtersChanged) return;
+
     monthRequestVersion.current += 1;
     setMonthDataMap({});
     setLoadingMonths({});
@@ -290,17 +342,23 @@ export default function Money({ hideAmounts }) {
     return formatCurrency(val);
   };
 
-  const handleCreateTransaction = async (e) => {
+  const handleSaveTransaction = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/transactions', {
+      const payload = {
         ...form,
-        amount: parseFloat(form.amount) || 0,
+        amount: Number(form.amount),
         category_id: form.category_id || undefined,
         subcategory_id: form.subcategory_id || undefined,
         account_id: form.account_id || undefined,
-      });
+      };
+      if (editingTransaction) {
+        await api.put(`/transactions/${editingTransaction.id}`, payload);
+      } else {
+        await api.post('/transactions', payload);
+      }
       setShowAddModal(false);
+      setEditingTransaction(null);
       setBudgetRefresh((current) => current + 1);
       setForm({
         type: form.type,
@@ -314,8 +372,23 @@ export default function Money({ hideAmounts }) {
       });
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to save transaction');
+      alert(err.response?.data?.detail || `Failed to ${editingTransaction ? 'update' : 'save'} transaction`);
     }
+  };
+
+  const openEditTransaction = (transaction) => {
+    setEditingTransaction(transaction);
+    setForm({
+      type: transaction.type || 'EXPENSE',
+      amount: String(transaction.amount ?? ''),
+      date: String(transaction.date || '').split('T')[0],
+      description: transaction.description || '',
+      category_id: transaction.category_id || '',
+      subcategory_id: transaction.subcategory_id || '',
+      account_id: transaction.account_id || '',
+      notes: transaction.notes || '',
+    });
+    setShowAddModal(true);
   };
 
   const openDeleteConfirm = (type, payload) => {
@@ -325,20 +398,17 @@ export default function Money({ hideAmounts }) {
   const confirmDelete = async () => {
     if (!deleteModal) return;
 
-    try {
-      if (deleteModal.type === 'transaction') {
-        await api.delete(`/transactions/${deleteModal.payload.id}`);
-      } else if (deleteModal.type === 'month') {
-        await Promise.all(deleteModal.payload.map((tx) => api.delete(`/transactions/${tx.id}`)));
-      } else if (deleteModal.type === 'all') {
-        await api.delete('/transactions/all');
-      }
-      setDeleteModal(null);
-      setBudgetRefresh((current) => current + 1);
-      fetchData();
-    } catch (err) {
-      alert('Failed to delete transaction');
+    if (deleteModal.type === 'transaction') {
+      await api.delete(`/transactions/${deleteModal.payload.id}`);
+    } else if (deleteModal.type === 'month' || deleteModal.type === 'date') {
+      await Promise.all(deleteModal.payload.map((tx) => api.delete(`/transactions/${tx.id}`)));
+    } else if (deleteModal.type === 'all') {
+      await api.delete('/transactions/all');
+    } else if (deleteModal.type === 'account') {
+      await api.delete(`/accounts/${deleteModal.payload.id}`);
     }
+    setBudgetRefresh((current) => current + 1);
+    await fetchData();
   };
 
   const handleDeleteTransaction = async (id) => {
@@ -350,15 +420,21 @@ export default function Money({ hideAmounts }) {
     openDeleteConfirm('month', monthTransactions);
   };
 
+  const handleDeleteDate = (dateTransactions) => {
+    if (!dateTransactions?.length) return;
+    openDeleteConfirm('date', dateTransactions);
+  };
+
   const groupedTransactions = useMemo(() => {
     const yearMap = new Map();
 
     monthBuckets.forEach((bucket) => {
       const year = Number(bucket.year);
-      const monthIndex = Number(bucket.month) - 1;
-      const monthKey = bucket.month_key || `${year}-${monthIndex}`;
-      const monthStart = `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
-      const monthEnd = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(new Date(year, monthIndex + 1, 0).getDate()).padStart(2, '0')}`;
+      const monthNumber = Number(bucket.month);
+      const monthIndex = monthNumber - 1;
+      const monthKey = `${year}-${String(monthNumber).padStart(2, '0')}`;
+      const monthStart = `${year}-${String(monthNumber).padStart(2, '0')}-01`;
+      const monthEnd = `${year}-${String(monthNumber).padStart(2, '0')}-${String(new Date(year, monthNumber, 0).getDate()).padStart(2, '0')}`;
       if (monthEnd < dateRange.start || monthStart > dateRange.end) return;
       const monthLabel = new Date(year, monthIndex, 1).toLocaleString('en-US', { month: 'long' });
 
@@ -371,6 +447,7 @@ export default function Money({ hideAmounts }) {
         label: monthLabel,
         year,
         monthIndex,
+        monthNumber,
         transactions: monthDataMap[monthKey] || [],
       });
     });
@@ -393,7 +470,7 @@ export default function Money({ hideAmounts }) {
     }));
   };
 
-  const toggleMonth = async (monthKey, year, monthIndex) => {
+  const toggleMonth = async (monthKey, year, monthNumber) => {
     const isOpen = expandedMonths[monthKey] ?? false;
     const nextState = !isOpen;
 
@@ -403,7 +480,7 @@ export default function Money({ hideAmounts }) {
     }));
 
     if (nextState && !monthDataMap[monthKey] && !loadingMonths[monthKey]) {
-      await fetchMonthTransactions(year, monthIndex);
+      await fetchMonthTransactions(year, monthNumber);
     }
   };
 
@@ -445,18 +522,64 @@ export default function Money({ hideAmounts }) {
   const handleCreateAccount = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/accounts', {
+      const payload = {
         name: newAccountForm.name,
         account_type: newAccountForm.account_type,
         balance: parseFloat(newAccountForm.balance) || 0,
         institution: newAccountForm.institution,
-      });
+      };
+      if (editingAccount) {
+        await api.put(`/accounts/${editingAccount.id}`, payload);
+      } else {
+        await api.post('/accounts', payload);
+      }
       setShowAddAccountModal(false);
-      setNewAccountForm({ name: '', account_type: 'SAVINGS', balance: '0', institution: '' });
-      fetchData();
+      setEditingAccount(null);
+      setNewAccountForm({ name: '', account_type: 'SAVINGS', balance: '', institution: '' });
+      await fetchData();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to create account');
+      alert(err.response?.data?.detail || `Failed to ${editingAccount ? 'update' : 'create'} account`);
     }
+  };
+
+  const openAccountModal = (account = null) => {
+    setEditingAccount(account);
+    setNewAccountForm(account ? {
+      name: account.name || '',
+      account_type: account.account_type || 'SAVINGS',
+      balance: String(account.balance ?? 0),
+      institution: account.institution || '',
+    } : { name: '', account_type: 'SAVINGS', balance: '', institution: '' });
+    setShowAddAccountModal(true);
+  };
+
+  const openAddTransaction = () => {
+    if (accountsLoading) return;
+    if (accountsError) {
+      alert(accountsError);
+      return;
+    }
+    if (accounts.length === 0) {
+      setActiveSubTab('accounts');
+      openAccountModal();
+      return;
+    }
+    setEditingTransaction(null);
+    setForm({
+      type: 'INCOME',
+      amount: '',
+      date: formatLocalDate(new Date()),
+      description: '',
+      category_id: '',
+      subcategory_id: '',
+      account_id: accounts[0].id,
+      notes: '',
+    });
+    setShowAddModal(true);
+  };
+
+  const handleDeleteAccount = async (account) => {
+    openDeleteConfirm('account', account);
   };
 
   const handleSaveBudget = async (e, categoryId) => {
@@ -489,7 +612,7 @@ export default function Money({ hideAmounts }) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Transactions</h1>
-          <p className="text-xs text-slate-500 mt-0.5">{transactions.length} entries</p>
+          <p className="text-xs text-slate-500 mt-0.5">{totalTransactionCount} entries</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="relative">
@@ -529,13 +652,21 @@ export default function Money({ hideAmounts }) {
             </button>
           )}
           <button
-            onClick={() => setShowAddModal(true)}
-            className="px-4 py-2 bg-emerald-800 hover:bg-emerald-900 text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+            onClick={openAddTransaction}
+            disabled={accountsLoading}
+            className="px-4 py-2 bg-emerald-800 hover:bg-emerald-900 text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer disabled:cursor-wait disabled:opacity-50"
           >
             <Plus className="w-4 h-4" /> Add
           </button>
         </div>
       </div>
+
+      <PageGuide
+        title={activeSubTab === 'transactions' ? 'Transactions: money in and money out' : `Money: ${activeSubTab}`}
+        summary={activeSubTab === 'transactions' ? 'Record income, expenses, and transfers so your cash-flow view reflects what happened.' : activeSubTab === 'budget' ? 'Set monthly spending limits by category, then compare them with your recorded expenses.' : activeSubTab === 'accounts' ? 'Accounts organize balances for cash and financial accounts; they are optional for transaction tracking.' : 'Cash-flow insights summarize recorded income and expenses over time.'}
+        steps={activeSubTab === 'transactions' ? ['Choose Add to enter the date, type, amount, category, and account.', 'To bring in history, use Import and review its preview before saving.'] : activeSubTab === 'budget' ? ['Choose a month.', 'Set a limit for categories you want to monitor.'] : activeSubTab === 'accounts' ? ['Add an account name and type.', 'Enter its current balance if you want it included in your overview.'] : ['Record transactions regularly.', 'Use the period and category views to spot patterns.']}
+        terms={[{ term: 'Income', definition: 'Money received.' }, { term: 'Expense', definition: 'Money paid out.' }, { term: 'Transfer', definition: 'Money moved between your own accounts.' }]}
+      />
 
       {/* Sub Tabs Navigation */}
       <div className="flex items-center gap-6 border-b border-slate-200 text-xs font-semibold">
@@ -714,7 +845,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                             <div key={monthGroup.key} className="border border-slate-200/80 rounded-xl overflow-hidden bg-slate-50/30">
                               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-white/80">
                                 <button
-                                  onClick={() => toggleMonth(monthGroup.key, monthGroup.year, monthGroup.monthIndex)}
+                                  onClick={() => toggleMonth(monthGroup.key, monthGroup.year, monthGroup.monthNumber) }
                                   className="flex items-center gap-2 text-left text-sm font-bold text-slate-900 hover:text-slate-700"
                                 >
                                   {isMonthOpen ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-500" />}
@@ -780,9 +911,9 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                                               {dateTotal >= 0 ? '+' : '-'}{formatCurrency(Math.abs(dateTotal))}
                                             </span>
                                             <button
-                                              onClick={() => dateTransactions.forEach((tx) => handleDeleteTransaction(tx.id))}
+                                              onClick={() => handleDeleteDate(dateTransactions)}
                                               className="p-1 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
-                                              title="Delete date transactions"
+                                              title="Delete transactions for this date"
                                             >
                                               <Trash2 className="w-3.5 h-3.5" />
                                             </button>
@@ -833,13 +964,24 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                                                         'No account'
                                                       )}
                                                     </span>
-                                                    <button
-                                                      onClick={() => handleDeleteTransaction(tx.id)}
-                                                      className="p-1 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
-                                                      title="Delete transaction"
-                                                    >
-                                                      <Trash2 className="w-3.5 h-3.5" />
-                                                    </button>
+                                                    <div className="flex items-center gap-1">
+                                                      <button
+                                                        onClick={() => openEditTransaction(tx)}
+                                                        className="p-1 text-slate-400 hover:text-emerald-700 transition-colors cursor-pointer"
+                                                        title="Edit transaction"
+                                                        aria-label={`Edit ${tx.description || 'transaction'}`}
+                                                      >
+                                                        <Edit3 className="w-3.5 h-3.5" />
+                                                      </button>
+                                                      <button
+                                                        onClick={() => handleDeleteTransaction(tx.id)}
+                                                        className="p-1 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                                                        title="Delete transaction"
+                                                        aria-label={`Delete ${tx.description || 'transaction'}`}
+                                                      >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                      </button>
+                                                    </div>
                                                   </div>
                                                 </div>
                                               </div>
@@ -984,7 +1126,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
               <p className="text-xs text-slate-500">Bank accounts, credit cards, and cash reserves</p>
             </div>
             <button
-              onClick={() => setShowAddAccountModal(true)}
+              onClick={() => openAccountModal()}
               className="px-3.5 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" /> Add Account
@@ -992,17 +1134,28 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {accountsError && (
+              <p className="col-span-full text-sm text-red-600" role="alert">{accountsError}</p>
+            )}
             {accounts.length > 0 ? (
               accounts.map(a => (
                 <div key={a.id} className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-slate-900 text-xs">{a.name}</span>
+                  <div className="flex items-center gap-2">
                     <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded">
                       {a.account_type}
                     </span>
+                    <button type="button" onClick={() => openAccountModal(a)} className="text-slate-500 hover:text-emerald-800" aria-label={`Edit ${a.name}`}>
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <button type="button" onClick={() => handleDeleteAccount(a)} className="text-slate-500 hover:text-red-600" aria-label={`Delete ${a.name}`}>
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
-                  <p className="text-xl font-extrabold text-slate-900">{formatCurrency(a.balance)}</p>
-                  <p className="text-[11px] text-slate-400">{a.institution || 'Bank Account'}</p>
+                </div>
+                <p className="text-xl font-extrabold text-slate-900">{formatCurrency(a.balance)}</p>
+                <p className="text-[11px] text-slate-400">{a.institution || 'Bank Account'} · {a.currency || 'INR'}</p>
                 </div>
               ))
             ) : (
@@ -1037,39 +1190,22 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
       )}
 
       {deleteModal && (
-        <div className="fixed inset-0 bg-slate-900/20 flex items-center justify-center p-4 z-[60]">
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl">
-            <div className="text-center">
-              <h3 className="text-xl font-bold text-slate-900">
-                {deleteModal.type === 'all' ? 'Delete all transactions?' : `Delete ${deleteModal.type === 'transaction' ? 'transaction' : 'transactions'}?`}
-              </h3>
-              <p className="mt-3 text-sm text-slate-600">
-                {deleteModal.type === 'transaction'
-                  ? 'This transaction will be permanently removed.'
-                  : deleteModal.type === 'month'
-                    ? `Delete all ${deleteModal.payload.length} transactions in this month?`
-                    : `Permanently delete all ${deleteModal.payload} transactions from Money? Account balances will be adjusted. This cannot be undone.`}
-              </p>
-            </div>
-
-            <div className="mt-6 flex justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => setDeleteModal(null)}
-                className="px-5 py-2 border border-slate-300 text-slate-700 rounded-full font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmDelete}
-                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-full font-bold shadow-xs cursor-pointer"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={deleteModal.type === 'account'
+            ? `Delete "${deleteModal.payload.name}"?`
+            : deleteModal.type === 'all' ? 'Delete all transactions?' : `Delete ${deleteModal.type === 'transaction' ? 'transaction' : 'transactions'}?`}
+          description={deleteModal.type === 'account'
+            ? 'This account and all transactions linked to it will be permanently deleted. This cannot be undone.'
+            : deleteModal.type === 'transaction'
+              ? 'This transaction will be permanently removed.'
+              : deleteModal.type === 'month'
+                ? `Delete all ${deleteModal.payload.length} transactions in this month?`
+                : deleteModal.type === 'date'
+                  ? `Delete all ${deleteModal.payload.length} transactions on this date?`
+                  : `Permanently delete all ${deleteModal.payload} transactions from Money? Account balances will be adjusted. This cannot be undone.`}
+          onCancel={() => setDeleteModal(null)}
+          onConfirm={confirmDelete}
+        />
       )}
 
       {/* ADD TRANSACTION MODAL */}
@@ -1077,13 +1213,13 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
         <div className="fixed inset-0 bg-transparent flex items-center justify-center p-4 z-50">
           <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-lg w-full shadow-2xl">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-sm">Add Transaction</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
+              <h3 className="font-bold text-slate-900 text-sm">{editingTransaction ? 'Edit Transaction' : 'Add Transaction'}</h3>
+              <button onClick={() => { setShowAddModal(false); setEditingTransaction(null); }} className="text-slate-400 hover:text-slate-600">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateTransaction} className="space-y-3 text-xs">
+            <form onSubmit={handleSaveTransaction} className="space-y-3 text-xs">
               {/* Type Switcher */}
               <div className="flex bg-slate-100 p-1 rounded-xl">
                 {['INCOME', 'EXPENSE', 'TRANSFER'].map(t => (
@@ -1121,6 +1257,17 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                   placeholder="e.g. Monthly Salary, Grocery Shopping"
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Notes</label>
+                <textarea
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  rows="2"
+                  placeholder="Optional details"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
@@ -1204,13 +1351,14 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Account</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Account <span className="text-red-600">*</span></label>
                   <select
+                    required
                     value={form.account_id}
                     onChange={(e) => setForm({ ...form, account_id: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 bg-white"
                   >
-                    <option value="">None / Cash</option>
+                    <option value="">Select an account</option>
                     {accounts.map(a => (
                       <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
@@ -1221,7 +1369,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
               <div className="pt-4 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => { setShowAddModal(false); setEditingTransaction(null); }}
                   className="px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg font-semibold"
                 >
                   Cancel
@@ -1230,7 +1378,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                   type="submit"
                   className="px-4 py-2 bg-emerald-800 hover:bg-emerald-900 text-white rounded-lg font-bold shadow-xs cursor-pointer"
                 >
-                  Save Transaction
+                  {editingTransaction ? 'Update Transaction' : 'Save Transaction'}
                 </button>
               </div>
             </form>
@@ -1311,8 +1459,8 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
         <div className="fixed inset-0 bg-transparent flex items-center justify-center p-4 z-50">
           <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-sm">Add Bank / Wallet Account</h3>
-              <button onClick={() => setShowAddAccountModal(false)} className="text-slate-400 hover:text-slate-600">
+              <h3 className="font-bold text-slate-900 text-sm">{editingAccount ? 'Edit Account' : 'Add Bank / Wallet Account'}</h3>
+              <button onClick={() => { setShowAddAccountModal(false); setEditingAccount(null); }} className="text-slate-400 hover:text-slate-600">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1357,10 +1505,21 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                 </div>
               </div>
 
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Institution</label>
+                <input
+                  type="text"
+                  placeholder="Bank or provider name"
+                  value={newAccountForm.institution}
+                  onChange={(e) => setNewAccountForm({ ...newAccountForm, institution: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
               <div className="pt-4 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddAccountModal(false)}
+                  onClick={() => { setShowAddAccountModal(false); setEditingAccount(null); }}
                   className="px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg font-semibold"
                 >
                   Cancel
@@ -1369,7 +1528,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                   type="submit"
                   className="px-4 py-2 bg-emerald-800 hover:bg-emerald-900 text-white rounded-lg font-bold shadow-xs cursor-pointer"
                 >
-                  Save Account
+                  {editingAccount ? 'Update Account' : 'Save Account'}
                 </button>
               </div>
             </form>

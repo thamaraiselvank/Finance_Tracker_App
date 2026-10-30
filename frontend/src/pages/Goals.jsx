@@ -3,16 +3,18 @@ import { Plus, Target, TrendingUp, Calendar, AlertCircle, CheckCircle2, Trash2, 
 import api from '../services/api';
 import { inrInWords } from '../utils/numberWords';
 import useCurrency from '../utils/useCurrency';
+import ConfirmDialog from '../components/ConfirmDialog';
+import PageGuide from '../components/PageGuide';
 
 const emptyGoal = {
     goal_name: '',
     goal_type: 'WEALTH_BUILD',
-    target_amount: 0,
-    current_amount: 0,
+    target_amount: '',
+    current_amount: '',
     target_date: '',
     priority: 3,
     description: '',
-    allocated_monthly_savings: 0
+    allocated_monthly_savings: ''
   };
 
 export default function GoalsPage() {
@@ -22,6 +24,7 @@ export default function GoalsPage() {
   const [showModal, setShowModal] = useState(false);
   const [summary, setSummary] = useState(null);
   const [editingGoal, setEditingGoal] = useState(null);
+  const [goalToDelete, setGoalToDelete] = useState(null);
   const [newGoal, setNewGoal] = useState(emptyGoal);
 
   useEffect(() => {
@@ -62,12 +65,12 @@ export default function GoalsPage() {
     setNewGoal({
       goal_name: goal.goal_name || '',
       goal_type: goal.goal_type || 'WEALTH_BUILD',
-      target_amount: goal.target_amount || 0,
-      current_amount: goal.current_amount || 0,
+      target_amount: goal.target_amount ?? '',
+      current_amount: goal.current_amount ?? '',
       target_date: goal.target_date ? goal.target_date.split('T')[0] : '',
       priority: goal.priority || 3,
       description: goal.description || '',
-      allocated_monthly_savings: goal.allocated_monthly_savings || 0
+      allocated_monthly_savings: goal.allocated_monthly_savings ?? ''
     });
     setShowModal(true);
   };
@@ -106,16 +109,10 @@ export default function GoalsPage() {
     }
   };
 
-  const handleDeleteGoal = async (goal) => {
-    if (!window.confirm(`Delete "${goal.goal_name}"? This cannot be undone.`)) return;
-    try {
-      await api.delete(`/goals/${goal.id}`);
-      setGoals((currentGoals) => currentGoals.filter((item) => item.id !== goal.id));
-      await Promise.all([fetchGoals(), fetchSummary()]);
-    } catch (error) {
-      console.error('Error deleting goal:', error);
-      alert('Unable to delete this goal. Please try again.');
-    }
+  const handleDeleteGoal = async () => {
+    await api.delete(`/goals/${goalToDelete.id}`);
+    setGoals((currentGoals) => currentGoals.filter((item) => item.id !== goalToDelete.id));
+    await Promise.all([fetchGoals(), fetchSummary()]);
   };
 
   const getGoalIcon = (goalType) => {
@@ -204,6 +201,13 @@ export default function GoalsPage() {
         </button>
       </div>
 
+      <PageGuide
+        title="Goals: turn a target into a plan"
+        summary="A goal keeps a target amount, current savings, and target date together so you can follow progress."
+        steps={['Choose a clear name, such as emergency fund or a planned purchase.', 'Enter the target amount, current amount, and target date.', 'Set a monthly contribution that fits your actual budget.']}
+        terms={[{ term: 'Progress', definition: 'Current amount compared with the target amount.' }, { term: 'Monthly allocation', definition: 'The amount you plan to set aside each month.' }]}
+      />
+
       {/* Summary Cards */}
       {summary && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
@@ -274,7 +278,7 @@ export default function GoalsPage() {
                     <Pencil size={14} />
                   </button>
                   <button
-                    onClick={() => handleDeleteGoal(goal)}
+                    onClick={() => setGoalToDelete(goal)}
                     title="Delete goal"
                     aria-label={`Delete ${goal.goal_name}`}
                     className="grid h-8 w-8 place-items-center rounded-md border border-rose-400/15 bg-rose-500/[0.06] text-rose-300 transition hover:bg-rose-500/15"
@@ -409,11 +413,11 @@ export default function GoalsPage() {
                 <input
                   type="number"
                   value={newGoal.target_amount}
-                  onChange={(e) => setNewGoal({...newGoal, target_amount: e.target.value === '' ? 0 : Number(e.target.value)})}
-                  placeholder="0"
+                  onChange={(e) => setNewGoal({...newGoal, target_amount: e.target.value})}
+                  placeholder="Enter target amount"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newGoal.target_amount, currency)}</p>
+                {newGoal.target_amount !== '' && <p className="text-xs text-slate-400 mt-1">{inrInWords(newGoal.target_amount, currency)}</p>}
               </div>
 
               <div>
@@ -422,11 +426,11 @@ export default function GoalsPage() {
                   type="number"
                   min="0"
                   value={newGoal.current_amount}
-                  onChange={(e) => setNewGoal({...newGoal, current_amount: e.target.value === '' ? 0 : Number(e.target.value)})}
-                  placeholder="0"
+                  onChange={(e) => setNewGoal({...newGoal, current_amount: e.target.value})}
+                  placeholder="Enter saved amount"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newGoal.current_amount, currency)}</p>
+                {newGoal.current_amount !== '' && <p className="text-xs text-slate-400 mt-1">{inrInWords(newGoal.current_amount, currency)}</p>}
               </div>
 
               <div>
@@ -457,7 +461,7 @@ export default function GoalsPage() {
                   type="number"
                   min="0"
                   value={newGoal.allocated_monthly_savings}
-                  onChange={(e) => setNewGoal({...newGoal, allocated_monthly_savings: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value))})}
+                  onChange={(e) => setNewGoal({...newGoal, allocated_monthly_savings: e.target.value === '' ? '' : Math.max(0, Number(e.target.value))})}
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
               </div>
@@ -489,6 +493,14 @@ export default function GoalsPage() {
             </div>
           </div>
         </div>
+      )}
+      {goalToDelete && (
+        <ConfirmDialog
+          title={`Delete "${goalToDelete.goal_name}"?`}
+          description="This goal will be permanently deleted. This cannot be undone."
+          onCancel={() => setGoalToDelete(null)}
+          onConfirm={handleDeleteGoal}
+        />
       )}
     </div>
   );

@@ -10,6 +10,7 @@ import {
   Upload,
   Calculator,
   Sparkles,
+  BookOpenText,
   UserCircle2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -28,6 +29,7 @@ export default function Sidebar({ activeTab, setActiveTab, collapsed, setCollaps
   ];
 
   const toolNavItems = [
+    { id: 'learn', label: 'Learn', icon: BookOpenText },
     { id: 'import', label: 'Import', icon: Upload },
     { id: 'calculators', label: 'Calculators', icon: Calculator },
     { id: 'ai-advisor', label: 'AI Advisor', icon: Sparkles, badge: 'AI' },

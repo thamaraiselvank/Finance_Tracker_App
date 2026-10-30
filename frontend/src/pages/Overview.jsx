@@ -31,6 +31,8 @@ import {
 } from 'recharts';
 import api from '../services/api';
 import useCurrency from '../utils/useCurrency';
+import GettingStarted from '../components/GettingStarted';
+import PageGuide from '../components/PageGuide';
 
 const COLORS = ['#0f766e', '#f59e0b', '#2563eb', '#e11d48', '#7c3aed', '#0891b2'];
 const TABS = [
@@ -40,7 +42,7 @@ const TABS = [
   { id: 'essentials', label: 'Essentials', icon: HeartPulse },
 ];
 
-export default function Overview({ hideAmounts, setActiveTab }) {
+export default function Overview({ hideAmounts, setActiveTab, userId }) {
   const { formatCurrency: formatAmount } = useCurrency();
   const [wealth, setWealth] = useState(null);
   const [txSummary, setTxSummary] = useState(null);
@@ -102,6 +104,7 @@ export default function Overview({ hideAmounts, setActiveTab }) {
   const goalProgress = Number(goalsSummary?.total_target_amount || 0) > 0
     ? Math.min(100, (Number(goalsSummary?.total_current_amount || 0) / Number(goalsSummary.total_target_amount)) * 100)
     : 0;
+  const netWorthTone = Number(wealth?.net_worth ?? 0) < 0 ? 'text-rose-700' : 'text-teal-800';
   const healthScore = Number(health?.overall_health_score || 0);
   const healthTone = healthScore >= 8 ? 'text-emerald-700' : healthScore >= 6 ? 'text-blue-700' : healthScore >= 4 ? 'text-amber-700' : 'text-rose-700';
   const tooltipStyle = { background: 'var(--panel-strong)', border: '1px solid var(--panel-border)', borderRadius: '6px', color: 'var(--text-primary)' };
@@ -159,8 +162,23 @@ export default function Overview({ hideAmounts, setActiveTab }) {
         </div>
       </header>
 
+      <GettingStarted
+        userId={userId}
+        transactions={(txSummary?.recent_transactions || []).length > 0}
+        hasGoal={Number(goalsSummary?.active_goals || 0) > 0}
+        hasWealth={Number(wealth?.total_assets_current || 0) > 0 || Number(wealth?.total_liabilities_outstanding || 0) > 0}
+        setActiveTab={setActiveTab}
+      />
+
+      <PageGuide
+        title="Dashboard: see how your records connect"
+        summary="The overview brings cash flow, net worth, goals, and readiness indicators together. Figures depend on the records and profile values you add."
+        steps={['Start with transactions for cash-flow context.', 'Add accounts, assets, debts, or goals only when you want those views.']}
+        terms={[{ term: 'Net worth', definition: 'Tracked assets minus tracked liabilities.' }, { term: 'Cash flow', definition: 'Income minus spending during the period shown.' }, { term: 'Health score', definition: 'A summary indicator based on several tracked areas, not a full financial review.' }]}
+      />
+
       <section className="mb-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md border border-slate-200 bg-white px-4 py-3 shadow-sm sm:grid-cols-4 md:gap-5 md:px-5" aria-label="Financial summary">
-        <Metric label="Net worth" value={formatCurrency(wealth?.net_worth)} note={`${formatCurrency(wealth?.total_assets_current)} assets`} icon={TrendingUp} tone="text-teal-800" />
+        <Metric label="Net worth" value={formatCurrency(wealth?.net_worth)} note={`${formatCurrency(wealth?.total_assets_current)} assets`} icon={TrendingUp} tone={netWorthTone} />
         <Metric label="Monthly cash flow" value={formatCurrency(txSummary?.net_savings)} note={`${formatCurrency(txSummary?.total_income)} income · ${formatCurrency(txSummary?.total_expense)} spend`} icon={ArrowDownRight} tone="text-blue-700" />
         <Metric label="Financial health" value={`${healthScore.toFixed(1)} / 10`} note={health?.health_score_status || 'Health score'} icon={BadgeCheck} tone={healthTone} />
         <Metric label="Active goals" value={goalsSummary?.active_goals || 0} note={`${goalsSummary?.completed_goals || 0} completed · ${formatCurrency(goalsSummary?.total_monthly_allocation)} / month`} icon={Target} tone="text-amber-700" />
@@ -255,7 +273,7 @@ export default function Overview({ hideAmounts, setActiveTab }) {
               <section className="rounded-md border border-slate-200 bg-white p-5 shadow-sm">
                 <SectionHeading title="Balance sheet" detail="Assets, liabilities, and investment performance" />
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  <div className="rounded-md bg-white p-3"><p className="text-[10px] text-slate-500">Net worth</p><p className="mt-1 text-lg font-bold text-teal-800">{formatCurrency(wealth?.net_worth)}</p></div>
+                  <div className="rounded-md bg-white p-3"><p className="text-[10px] text-slate-500">Net worth</p><p className={`mt-1 text-lg font-bold ${netWorthTone}`}>{formatCurrency(wealth?.net_worth)}</p></div>
                   <div className="rounded-md bg-white p-3"><p className="text-[10px] text-slate-500">Total assets</p><p className="mt-1 text-lg font-bold text-slate-800">{formatCurrency(wealth?.total_assets_current)}</p></div>
                   <div className="rounded-md bg-white p-3"><p className="text-[10px] text-slate-500">Invested</p><p className="mt-1 text-lg font-bold text-blue-700">{formatCurrency(wealth?.total_assets_invested)}</p></div>
                   <div className="rounded-md bg-white p-3"><p className="text-[10px] text-slate-500">Liabilities</p><p className="mt-1 text-lg font-bold text-rose-700">{formatCurrency(wealth?.total_liabilities_outstanding)}</p></div>

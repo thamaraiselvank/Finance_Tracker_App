@@ -1,29 +1,86 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Plus, CreditCard, TrendingDown, AlertCircle, Zap, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { inrInWords } from '../utils/numberWords';
 import useCurrency from '../utils/useCurrency';
+import ConfirmDialog from '../components/ConfirmDialog';
+import PageGuide from '../components/PageGuide';
 
 const emptyDebt = {
     debt_name: '',
     debt_type: 'PERSONAL_LOAN',
-    principal_amount: 0,
-    current_outstanding: 0,
-    interest_rate_pct: 0,
-    tenure_months: 0,
-    monthly_emi: 0,
+    principal_amount: '',
+    current_outstanding: '',
+    interest_rate_pct: '',
+    tenure_months: '',
+    monthly_emi: '',
+    start_date: '',
+    end_date: '',
+    total_interest_paid: '',
     creditor_name: ''
   };
+
+const addMonthsToDate = (dateValue, months) => {
+  if (!dateValue || !months) return '';
+  const [year, month, day] = dateValue.split('-').map(Number);
+  const targetMonth = month - 1 + Number(months);
+  const targetYear = year + Math.floor(targetMonth / 12);
+  const normalizedMonth = ((targetMonth % 12) + 12) % 12;
+  const lastDay = new Date(targetYear, normalizedMonth + 1, 0).getDate();
+  const targetDay = Math.min(day, lastDay);
+  return `${targetYear}-${String(normalizedMonth + 1).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`;
+};
+
+const getMonthsBetweenDates = (startDate, endDate) => {
+  if (!startDate || !endDate || endDate < startDate) return '';
+  const [startYear, startMonth, startDay] = startDate.split('-').map(Number);
+  const [endYear, endMonth, endDay] = endDate.split('-').map(Number);
+  let months = (endYear - startYear) * 12 + endMonth - startMonth;
+  if (endDay > startDay) months += 1;
+  return Math.max(1, months);
+};
+
+const calculateEstimatedInterest = (principal, annualRate, monthlyEmi, tenureMonths) => {
+  let balance = Number(principal) || 0;
+  const rate = (Number(annualRate) || 0) / 1200;
+  let payment = Number(monthlyEmi) || 0;
+  const months = Number(tenureMonths) || 0;
+  if (!balance || !months) return null;
+  if (payment <= 0) {
+    payment = rate > 0
+      ? balance * rate / (1 - Math.pow(1 + rate, -months))
+      : balance / months;
+  }
+
+  let totalInterest = 0;
+  for (let month = 0; month < Math.min(months, 600) && balance > 0; month += 1) {
+    const interest = balance * rate;
+    if (payment <= interest) return null;
+    totalInterest += interest;
+    balance = Math.max(0, balance + interest - payment);
+  }
+  return balance <= 0.01 ? totalInterest : null;
+};
+
+const formatDate = (dateValue) => {
+  if (!dateValue) return 'N/A';
+  const [year, month, day] = dateValue.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString();
+};
 
 export default function DebtsPage() {
   const { currency, formatCurrency, currencySymbol } = useCurrency();
   const [debts, setDebts] = useState([]);
   const [summary, setSummary] = useState(null);
   const [strategy, setStrategy] = useState(null);
+  const [strategyLoading, setStrategyLoading] = useState(false);
+  const [strategyError, setStrategyError] = useState('');
+  const strategyRequestVersion = useRef(0);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [strategyType, setStrategyType] = useState('avalanche');
   const [editingDebt, setEditingDebt] = useState(null);
+  const [debtToDelete, setDebtToDelete] = useState(null);
   const [newDebt, setNewDebt] = useState(emptyDebt);
 
   useEffect(() => {
@@ -54,14 +111,31 @@ export default function DebtsPage() {
   };
 
   const fetchStrategy = async () => {
+    const requestVersion = ++strategyRequestVersion.current;
+    setStrategy(null);
+    setStrategyError('');
+    setStrategyLoading(true);
     try {
       const endpoint = strategyType === 'avalanche' ? '/debts/strategy/avalanche' : '/debts/strategy/snowball';
       const response = await api.get(endpoint);
-      setStrategy(response.data);
+      if (requestVersion === strategyRequestVersion.current) {
+        setStrategy(response.data);
+      }
     } catch (error) {
       console.error('Error fetching strategy:', error);
+      if (requestVersion === strategyRequestVersion.current) {
+        setStrategyError('Unable to load the payoff strategy. Please try again.');
+      }
+    } finally {
+      if (requestVersion === strategyRequestVersion.current) {
+        setStrategyLoading(false);
+      }
     }
   };
+
+  useEffect(() => {
+    fetchStrategy();
+  }, [strategyType]);
 
   const openAddDebt = () => {
     setEditingDebt(null);
@@ -74,20 +148,47 @@ export default function DebtsPage() {
     setNewDebt({
       debt_name: debt.debt_name || '',
       debt_type: debt.debt_type || 'PERSONAL_LOAN',
-      principal_amount: debt.principal_amount || 0,
-      current_outstanding: debt.current_outstanding || 0,
-      interest_rate_pct: debt.interest_rate_pct || 0,
-      tenure_months: debt.tenure_months || 0,
-      monthly_emi: debt.monthly_emi || 0,
+      principal_amount: debt.principal_amount ?? '',
+      current_outstanding: debt.current_outstanding ?? '',
+      interest_rate_pct: debt.interest_rate_pct ?? '',
+      tenure_months: debt.tenure_months ?? '',
+      monthly_emi: debt.monthly_emi ?? '',
+      start_date: debt.start_date || '',
+      end_date: debt.end_date || '',
+      total_interest_paid: debt.total_interest_paid ?? '',
       creditor_name: debt.creditor_name || ''
     });
     setShowModal(true);
   };
 
+  const updateLoanDate = (field, value) => {
+    setNewDebt((current) => {
+      const updated = { ...current, [field]: value };
+      if (field === 'start_date') {
+        if (updated.tenure_months) {
+          updated.end_date = addMonthsToDate(value, updated.tenure_months);
+        } else if (value && updated.end_date) {
+          updated.tenure_months = getMonthsBetweenDates(value, updated.end_date);
+        }
+      } else if (field === 'end_date' && updated.start_date) {
+        updated.tenure_months = getMonthsBetweenDates(updated.start_date, value);
+      }
+      return updated;
+    });
+  };
+
+  const updateTenure = (value) => {
+    setNewDebt((current) => ({
+      ...current,
+      tenure_months: value,
+      end_date: value && current.start_date ? addMonthsToDate(current.start_date, value) : current.end_date,
+    }));
+  };
+
   const updateNonNegativeNumber = (field, value) => {
     setNewDebt((current) => ({
       ...current,
-      [field]: value === '' ? 0 : Math.max(0, Number(value) || 0),
+      [field]: value === '' ? '' : Math.max(0, Number(value) || 0),
     }));
   };
 
@@ -98,13 +199,22 @@ export default function DebtsPage() {
       principal_amount: Number(newDebt.principal_amount || newDebt.current_outstanding || 0),
       current_outstanding: Number(newDebt.current_outstanding || 0),
       interest_rate_pct: Number(newDebt.interest_rate_pct || 0),
-      tenure_months: Number(newDebt.tenure_months || 0),
+      tenure_months: newDebt.tenure_months ? Number(newDebt.tenure_months) : null,
       monthly_emi: Number(newDebt.monthly_emi || 0),
+      start_date: newDebt.start_date || null,
+      end_date: newDebt.end_date || null,
+      total_interest_paid: Number(newDebt.total_interest_paid || 0),
       creditor_name: newDebt.creditor_name?.trim() || null
     };
 
-    if (!payload.debt_name || payload.principal_amount <= 0 || payload.current_outstanding < 0) {
-      alert('Please enter a debt name, principal amount, and outstanding amount.');
+    if (
+      !payload.debt_name ||
+      payload.principal_amount <= 0 ||
+      payload.current_outstanding < 0 ||
+      (payload.tenure_months !== null && payload.tenure_months <= 0) ||
+      (payload.start_date && payload.end_date && payload.end_date <= payload.start_date)
+    ) {
+      alert('Please enter valid debt details, including a positive tenure and an end date after the start date.');
       return;
     }
 
@@ -118,22 +228,16 @@ export default function DebtsPage() {
       setShowModal(false);
       setEditingDebt(null);
       setNewDebt(emptyDebt);
-      fetchDebts();
-      fetchSummary();
+      await Promise.all([fetchDebts(), fetchSummary(), fetchStrategy()]);
     } catch (error) {
       console.error('Error saving debt:', error);
+      alert(error.response?.data?.detail || 'Unable to save this debt. Please try again.');
     }
   };
 
-  const handleDeleteDebt = async (debt) => {
-    if (!window.confirm(`Delete "${debt.debt_name}"? This cannot be undone.`)) return;
-    try {
-      await api.delete(`/debts/${debt.id}`);
-      await Promise.all([fetchDebts(), fetchSummary()]);
-    } catch (error) {
-      console.error('Error deleting debt:', error);
-      alert('Unable to delete this debt. Please try again.');
-    }
+  const handleDeleteDebt = async () => {
+    await api.delete(`/debts/${debtToDelete.id}`);
+    await Promise.all([fetchDebts(), fetchSummary(), fetchStrategy()]);
   };
 
   const getDebtIcon = (debtType) => {
@@ -161,6 +265,12 @@ export default function DebtsPage() {
   }
 
   const riskBadge = getRiskBadge(summary?.debt_to_income_ratio || 0);
+  const estimatedInterest = calculateEstimatedInterest(
+    newDebt.principal_amount,
+    newDebt.interest_rate_pct,
+    newDebt.monthly_emi,
+    newDebt.tenure_months
+  );
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6 page-enter">
@@ -178,24 +288,31 @@ export default function DebtsPage() {
         </button>
       </div>
 
+      <PageGuide
+        title="Debts: understand balances and payoff options"
+        summary="Track what you owe, the interest rate, and payment schedule. Strategies compare possible payoff orders using your entries."
+        steps={['Use the current outstanding balance from your lender statement.', 'Add the interest rate and monthly payment if known.', 'Compare avalanche and snowball estimates; choose based on your circumstances.']}
+        terms={[{ term: 'Principal', definition: 'The amount originally borrowed.' }, { term: 'Outstanding', definition: 'The amount still owed now.' }, { term: 'EMI', definition: 'A regular loan payment that usually includes principal and interest.' }]}
+      />
+
       {/* Summary Cards */}
       {summary && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Total Debt</p>
-            <p className="text-3xl font-bold text-red-400">{formatCurrency(summary.total_outstanding)}</p>
+            <p className="finance-summary-value font-bold text-red-400">{formatCurrency(summary.total_outstanding)}</p>
           </div>
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Monthly EMI</p>
-            <p className="text-3xl font-bold text-orange-400">{formatCurrency(summary.total_monthly_emi)}</p>
+            <p className="finance-summary-value font-bold text-orange-400">{formatCurrency(summary.total_monthly_emi)}</p>
           </div>
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Avg Interest Rate</p>
-            <p className="text-3xl font-bold text-yellow-400">{summary.total_interest_rate_avg?.toFixed(2)}%</p>
+            <p className="finance-summary-value font-bold text-yellow-400">{summary.total_interest_rate_avg?.toFixed(2)}%</p>
           </div>
           <div className="glass-panel-hover p-5">
             <p className="text-xs font-semibold text-slate-400 mb-2">Debt-to-Income Ratio</p>
-            <p className={`text-3xl font-bold ${riskBadge.color.split(' ')[0].replace('bg-', 'text-').split('/')[0]}-400`}>{summary.debt_to_income_ratio?.toFixed(1)}%</p>
+            <p className={`finance-summary-value font-bold ${riskBadge.color.split(' ')[0].replace('bg-', 'text-').split('/')[0]}-400`}>{summary.debt_to_income_ratio?.toFixed(1)}%</p>
           </div>
         </div>
       )}
@@ -219,7 +336,7 @@ export default function DebtsPage() {
 
         <div className="grid grid-cols-2 gap-4 mb-6">
           <button
-            onClick={() => { setStrategyType('avalanche'); fetchStrategy(); }}
+            onClick={() => setStrategyType('avalanche')}
             className={`p-4 rounded-lg border transition-all ${
               strategyType === 'avalanche'
                 ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
@@ -230,7 +347,7 @@ export default function DebtsPage() {
             <p className="text-sm">Pay highest interest first</p>
           </button>
           <button
-            onClick={() => { setStrategyType('snowball'); fetchStrategy(); }}
+            onClick={() => setStrategyType('snowball')}
             className={`p-4 rounded-lg border transition-all ${
               strategyType === 'snowball'
                 ? 'bg-blue-500/20 border-blue-500 text-blue-400'
@@ -243,25 +360,36 @@ export default function DebtsPage() {
         </div>
 
         {/* Strategy Details */}
-        {strategy && (
+        {strategyLoading ? (
+          <p className="text-sm text-slate-300">Calculating payoff plan...</p>
+        ) : strategyError ? (
+          <p className="text-sm text-red-300">{strategyError}</p>
+        ) : strategy && (
           <div className="bg-slate-700 p-4 rounded-lg">
-            <p className="text-slate-300 mb-4">
-              <span className="font-semibold">Months to Payoff:</span> {strategy.months_to_complete} months
-            </p>
-            {strategyType === 'avalanche' && strategy.total_interest_saved && (
-              <p className="text-emerald-400">
-                <span className="font-semibold">Interest Saved:</span> {formatCurrency(strategy.total_interest_saved)}
+            {strategy.recommended_order?.length ? (
+              <>
+                <p className="text-slate-300 mb-4">
+                  <span className="font-semibold">Months to Payoff:</span> {strategy.months_to_complete >= 600 ? '600+ months' : `${strategy.months_to_complete} months`}
+                </p>
+                {strategyType === 'avalanche' && strategy.total_interest_saved > 0 && (
+                  <p className="text-emerald-400">
+                    <span className="font-semibold">Interest Saved:</span> {formatCurrency(strategy.total_interest_saved)}
+                  </p>
+                )}
+                <div className="mt-4 space-y-2">
+                  <p className="font-semibold text-white">Payoff Order:</p>
+                  {strategy.recommended_order.map((item, idx) => (
+                    <div key={idx} className="text-sm text-slate-300 bg-slate-800 p-2 rounded">
+                      {idx + 1}. {item.debt_name} ({Number(item.interest_rate_pct || 0).toFixed(2)}%) - {item.months_to_payoff >= 600 ? '600+ months' : `${item.months_to_payoff} months`}
+                      {item.payoff_date && <span className="block mt-1 text-xs text-slate-400">Estimated payoff: {new Date(`${item.payoff_date}T00:00:00`).toLocaleDateString()}</span>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-slate-300">
+                No outstanding debts to include in a payoff strategy. Add a debt or update an existing balance to see your plan.
               </p>
-            )}
-            {strategy.recommended_order && strategy.recommended_order.length > 0 && (
-              <div className="mt-4 space-y-2">
-                <p className="font-semibold text-white">Payoff Order:</p>
-                {strategy.recommended_order.map((item, idx) => (
-                  <div key={idx} className="text-sm text-slate-300 bg-slate-800 p-2 rounded">
-                    {idx + 1}. {item.debt_name} - {item.months_to_payoff} months
-                  </div>
-                ))}
-              </div>
             )}
           </div>
         )}
@@ -290,7 +418,7 @@ export default function DebtsPage() {
                     Edit
                   </button>
                   <button
-                    onClick={() => handleDeleteDebt(debt)}
+                    onClick={() => setDebtToDelete(debt)}
                     title="Delete debt"
                     aria-label={`Delete ${debt.debt_name}`}
                     className="grid h-8 w-8 place-items-center rounded-md border border-rose-400/15 bg-rose-500/[0.06] text-rose-300 transition hover:bg-rose-500/15"
@@ -306,23 +434,31 @@ export default function DebtsPage() {
               </div>
 
               {/* Debt Details Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 border-t border-b border-slate-700">
-                <div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 py-4 border-t border-b border-slate-700">
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-400">Original Principal</p>
+                  <p className="finance-detail-value font-bold text-slate-200">{formatCurrency(debt.principal_amount)}</p>
+                </div>
+                <div className="min-w-0">
                   <p className="text-xs text-slate-400">Outstanding</p>
-                  <p className="text-lg font-bold text-white">{formatCurrency(debt.current_outstanding)}</p>
-                  <p className="text-xs text-slate-400">{inrInWords(debt.current_outstanding, currency)}</p>
+                  <p className="finance-detail-value font-bold text-white">{formatCurrency(debt.current_outstanding)}</p>
+                  <p className="break-words text-xs text-slate-400">{inrInWords(debt.current_outstanding, currency)}</p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs text-slate-400">Monthly EMI</p>
-                  <p className="text-lg font-bold text-orange-400">{formatCurrency(debt.monthly_emi)}</p>
+                  <p className="finance-detail-value font-bold text-orange-400">{formatCurrency(debt.monthly_emi)}</p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs text-slate-400">Interest Rate</p>
-                  <p className="text-lg font-bold text-yellow-400">{debt.interest_rate_pct}%</p>
+                  <p className="finance-detail-value font-bold text-yellow-400">{debt.interest_rate_pct}%</p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs text-slate-400">Tenure</p>
-                  <p className="text-lg font-bold text-slate-300">{debt.tenure_months} months</p>
+                  <p className="finance-detail-value font-bold text-slate-300">{debt.tenure_months ? `${debt.tenure_months} months` : 'Not set'}</p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-400">Interest Paid to Date</p>
+                  <p className="finance-detail-value font-bold text-emerald-400">{formatCurrency(debt.total_interest_paid || 0)}</p>
                 </div>
               </div>
 
@@ -331,8 +467,10 @@ export default function DebtsPage() {
                 <div className="flex items-center gap-2">
                   <TrendingDown size={16} className="text-slate-400" />
                   <span className="text-slate-300">
-                    Debt-free by: <span className="font-semibold text-white">
-                      {debt.end_date ? new Date(debt.end_date).toLocaleDateString() : 'N/A'}
+                    Started: <span className="font-semibold text-white">{formatDate(debt.start_date)}</span>
+                    <span className="mx-2 text-slate-500">•</span>
+                    Loan end date: <span className="font-semibold text-white">
+                      {formatDate(debt.end_date)}
                     </span>
                   </span>
                 </div>
@@ -400,10 +538,10 @@ export default function DebtsPage() {
                   min="0"
                   value={newDebt.principal_amount}
                   onChange={(e) => updateNonNegativeNumber('principal_amount', e.target.value)}
-                  placeholder="0"
+                  placeholder="Enter principal amount"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newDebt.principal_amount, currency)}</p>
+                {newDebt.principal_amount !== '' && <p className="text-xs text-slate-400 mt-1">{inrInWords(newDebt.principal_amount, currency)}</p>}
               </div>
 
               <div>
@@ -413,10 +551,10 @@ export default function DebtsPage() {
                   min="0"
                   value={newDebt.current_outstanding}
                   onChange={(e) => updateNonNegativeNumber('current_outstanding', e.target.value)}
-                  placeholder="0"
+                  placeholder="Enter outstanding amount"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newDebt.current_outstanding, currency)}</p>
+                {newDebt.current_outstanding !== '' && <p className="text-xs text-slate-400 mt-1">{inrInWords(newDebt.current_outstanding, currency)}</p>}
               </div>
 
               <div>
@@ -427,7 +565,7 @@ export default function DebtsPage() {
                   step="0.1"
                   value={newDebt.interest_rate_pct}
                   onChange={(e) => updateNonNegativeNumber('interest_rate_pct', e.target.value)}
-                  placeholder="0"
+                  placeholder="Enter interest rate"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
               </div>
@@ -439,10 +577,63 @@ export default function DebtsPage() {
                   min="0"
                   value={newDebt.monthly_emi}
                   onChange={(e) => updateNonNegativeNumber('monthly_emi', e.target.value)}
-                  placeholder="0"
+                  placeholder="Enter monthly EMI"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
-                <p className="text-xs text-slate-400 mt-1">{inrInWords(newDebt.monthly_emi, currency)}</p>
+                {newDebt.monthly_emi !== '' && <p className="text-xs text-slate-400 mt-1">{inrInWords(newDebt.monthly_emi, currency)}</p>}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Loan Tenure (months)</label>
+                <input
+                  type="number"
+                  min="1"
+                  list="loan-tenure-options"
+                  value={newDebt.tenure_months}
+                  onChange={(e) => updateTenure(e.target.value)}
+                  placeholder="e.g., 60"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
+                />
+                <datalist id="loan-tenure-options">
+                  {[6, 12, 24, 36, 60, 84, 120, 180, 240, 300, 360].map((months) => (
+                    <option key={months} value={months}>{months} months</option>
+                  ))}
+                </datalist>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Loan Start Date</label>
+                <input
+                  type="date"
+                  value={newDebt.start_date}
+                  onChange={(e) => updateLoanDate('start_date', e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Loan End Date</label>
+                <input
+                  type="date"
+                  value={newDebt.end_date}
+                  onChange={(e) => updateLoanDate('end_date', e.target.value)}
+                  min={newDebt.start_date || undefined}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
+                />
+                <p className="text-xs text-slate-400 mt-1">Calculated from the start date and tenure, or set a date to calculate the tenure.</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Interest Paid to Date ({currencySymbol})</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={newDebt.total_interest_paid}
+                  onChange={(e) => updateNonNegativeNumber('total_interest_paid', e.target.value)}
+                  placeholder="Enter interest already paid"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
+                />
+                <p className="text-xs text-slate-400 mt-1">Enter the actual interest paid so far from your loan statement.</p>
               </div>
 
               <div>
@@ -456,6 +647,18 @@ export default function DebtsPage() {
                 />
               </div>
             </div>
+
+            {newDebt.principal_amount && newDebt.tenure_months && (
+              <div className="mt-4 rounded-lg border border-slate-600 bg-slate-700/60 p-4">
+                <p className="text-sm font-medium text-slate-300">Estimated total interest over the loan</p>
+                <p className="mt-1 text-xl font-bold text-emerald-400">
+                  {estimatedInterest === null ? 'Unable to estimate with this EMI' : formatCurrency(estimatedInterest)}
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Estimate based on original principal, annual interest rate, tenure, and monthly EMI. Track actual interest paid separately below.
+                </p>
+              </div>
+            )}
 
             <div className="flex gap-3 mt-8">
               <button
@@ -473,6 +676,14 @@ export default function DebtsPage() {
             </div>
           </div>
         </div>
+      )}
+      {debtToDelete && (
+        <ConfirmDialog
+          title={`Delete "${debtToDelete.debt_name}"?`}
+          description="This debt record will be permanently deleted. This cannot be undone."
+          onCancel={() => setDebtToDelete(null)}
+          onConfirm={handleDeleteDebt}
+        />
       )}
     </div>
   );

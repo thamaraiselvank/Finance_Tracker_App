@@ -36,6 +36,11 @@ api.interceptors.response.use(
           });
           if (res.data?.access_token) {
             localStorage.setItem('finverse_access_token', res.data.access_token);
+            const startedAt = Date.now();
+            localStorage.setItem('finverse_session_started_at', String(startedAt));
+            window.dispatchEvent(new CustomEvent('finverse-session-refreshed', {
+              detail: { startedAt },
+            }));
             originalRequest.headers.Authorization = `Bearer ${res.data.access_token}`;
             return api(originalRequest);
           }
@@ -43,6 +48,7 @@ api.interceptors.response.use(
           localStorage.removeItem('finverse_access_token');
           localStorage.removeItem('finverse_refresh_token');
           localStorage.removeItem('finverse_user');
+          localStorage.removeItem('finverse_session_started_at');
           window.location.href = '/';
         }
       }
