@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { inrInWords } from '../utils/numberWords';
 import { formatCurrency, getCurrencySymbol } from '../utils/currency';
 import PageGuide from '../components/PageGuide';
+import { showToast } from '../utils/toast';
 
 export default function Profile() {
   const { user, updateProfile } = useAuth();
@@ -75,7 +76,7 @@ export default function Profile() {
       setIsEditing(false);
     } catch (error) {
       console.error('Failed to update profile', error);
-      alert('Could not save your profile. Please try again.');
+      showToast('Could not save your profile. Please try again.', 'error');
     } finally {
       setSaving(false);
     }

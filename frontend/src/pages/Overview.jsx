@@ -230,7 +230,7 @@ export default function Overview({ hideAmounts, setActiveTab, userId }) {
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <Signal label="Emergency runway" value={`${Number(health?.emergency_runway_months || 0).toFixed(1)} months`} detail="6 months target" percent={(Number(health?.emergency_runway_months || 0) / 6) * 100} tone="text-teal-800" />
                   <Signal label="Savings rate" value={`${Number(health?.savings_rate_pct || 0).toFixed(1)}%`} detail="20% target" percent={(Number(health?.savings_rate_pct || 0) / 20) * 100} tone="text-blue-700" />
-                  <Signal label="Debt-to-income" value={`${Number(debtsSummary?.debt_to_income_ratio || 0).toFixed(1)}%`} detail="Below 20% preferred" percent={100 - Number(debtsSummary?.debt_to_income_ratio || 0)} tone={debtsSummary?.debt_to_income_ratio > 40 ? 'text-rose-700' : 'text-amber-700'} />
+                  <Signal label="Debt-to-income" value={`${Number(debtsSummary?.debt_to_income_ratio || 0).toFixed(1)}%`} detail="EMIs ÷ income · under 20% preferred" percent={100 - Number(debtsSummary?.debt_to_income_ratio || 0)} tone={debtsSummary?.debt_to_income_ratio > 40 ? 'text-rose-700' : 'text-amber-700'} />
                   <Signal label="Insurance cover" value={`${insuranceSummary?.active_policies || 0} active`} detail={formatCurrency(insuranceSummary?.total_sum_insured)} percent={insuranceSummary?.active_policies ? 100 : 8} tone={insuranceSummary?.critical_gaps?.length ? 'text-amber-700' : 'text-teal-800'} />
                 </div>
                 <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3 text-xs">
@@ -310,7 +310,7 @@ export default function Overview({ hideAmounts, setActiveTab, userId }) {
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <Signal label="Emergency fund" value={`${Number(health?.emergency_runway_months || 0).toFixed(1)} months`} detail="6 months target" percent={(Number(health?.emergency_runway_months || 0) / 6) * 100} tone="text-teal-800" />
                   <Signal label="Savings rate" value={`${Number(health?.savings_rate_pct || 0).toFixed(1)}%`} detail="20% target" percent={(Number(health?.savings_rate_pct || 0) / 20) * 100} tone="text-blue-700" />
-                  <Signal label="Debt-to-income" value={`${Number(debtsSummary?.debt_to_income_ratio || 0).toFixed(1)}%`} detail="Below 20% preferred" percent={100 - Number(debtsSummary?.debt_to_income_ratio || 0)} tone={debtsSummary?.debt_to_income_ratio > 40 ? 'text-rose-700' : 'text-amber-700'} />
+                  <Signal label="Debt-to-income" value={`${Number(debtsSummary?.debt_to_income_ratio || 0).toFixed(1)}%`} detail="EMIs ÷ income · under 20% preferred" percent={100 - Number(debtsSummary?.debt_to_income_ratio || 0)} tone={debtsSummary?.debt_to_income_ratio > 40 ? 'text-rose-700' : 'text-amber-700'} />
                   <Signal label="Insurance cover" value={`${insuranceSummary?.active_policies || 0} active policies`} detail={formatCurrency(insuranceSummary?.total_sum_insured)} percent={insuranceSummary?.active_policies ? 100 : 8} tone={insuranceSummary?.critical_gaps?.length ? 'text-amber-700' : 'text-teal-800'} />
                 </div>
                 {insuranceSummary?.critical_gaps?.length > 0 && <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">Coverage review: {insuranceSummary.critical_gaps.join('; ')}</p>}

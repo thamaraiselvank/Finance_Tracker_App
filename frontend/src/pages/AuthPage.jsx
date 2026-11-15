@@ -2,6 +2,22 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Sparkles, ShieldCheck, TrendingUp, ArrowRight, Lock, Mail, User, Eye, EyeOff } from 'lucide-react';
 
+function formatAuthError(detail) {
+  if (typeof detail === 'string') return detail;
+  if (!Array.isArray(detail)) return 'Authentication failed. Please check your details and try again.';
+
+  return detail.map((item) => {
+    const field = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : '';
+    const label = ({ username: 'Username', password: 'Password', email: 'Email address' })[field];
+    const limit = item?.ctx?.min_length ?? item?.ctx?.max_length;
+    if (label && item?.ctx?.min_length) return `${label} must be at least ${limit} characters.`;
+    if (label && item?.ctx?.max_length) return `${label} must be no more than ${limit} characters.`;
+    if (field === 'email') return 'Enter a valid email address.';
+    if (label && item?.msg) return `${label}: ${item.msg}`;
+    return item?.msg || 'Some account details are invalid.';
+  }).filter(Boolean).join(' ');
+}
+
 export default function AuthPage() {
   const { login, register } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
@@ -24,10 +40,12 @@ export default function AuthPage() {
       if (isLogin) {
         await login(formData.username || formData.email, formData.password);
       } else {
+        sessionStorage.setItem('finverse_auth_toast', 'Your account was created successfully. You are now signed in.');
         await register(formData);
       }
     } catch (err) {
-      setError(err.response?.data?.detail || 'Authentication failed. Please check your credentials.');
+      sessionStorage.removeItem('finverse_auth_toast');
+      setError(formatAuthError(err.response?.data?.detail));
     } finally {
       setLoading(false);
     }
@@ -123,7 +141,7 @@ export default function AuthPage() {
           </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs font-medium">
+            <div role="alert" className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs font-medium">
               {error}
             </div>
           )}
@@ -156,11 +174,14 @@ export default function AuthPage() {
                   type={isLogin ? "text" : "email"}
                   required
                   value={isLogin ? (formData.username || formData.email) : formData.email}
-                  onChange={(e) => setFormData({ 
-                    ...formData, 
-                    email: e.target.value,
-                    username: isLogin ? e.target.value : formData.username 
-                  })}
+                  onChange={(e) => {
+                    setError('');
+                    setFormData({
+                      ...formData,
+                      email: e.target.value,
+                      username: isLogin ? e.target.value : formData.username
+                    });
+                  }}
                   placeholder={isLogin ? "Username or email" : "you@example.com"}
                   className="w-full pl-9 pr-3 py-2 text-xs glass-input"
                 />
@@ -173,11 +194,20 @@ export default function AuthPage() {
                 <input
                   type="text"
                   required
+                  minLength={3}
+                  maxLength={50}
                   value={formData.username}
-                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                  onChange={(e) => {
+                    setError('');
+                    setFormData({ ...formData, username: e.target.value });
+                  }}
                   placeholder="e.g. alex_smith"
+                  aria-describedby="username-requirement"
                   className="w-full px-3 py-2 text-xs glass-input"
                 />
+                <p id="username-requirement" className={`mt-1 text-[11px] ${formData.username.length >= 3 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                  Username must be 3–50 characters. {formData.username.length > 0 && formData.username.length < 3 ? `${3 - formData.username.length} more needed.` : ''}
+                </p>
               </div>
             )}
 
@@ -188,9 +218,14 @@ export default function AuthPage() {
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
+                  minLength={isLogin ? undefined : 6}
                   value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  onChange={(e) => {
+                    setError('');
+                    setFormData({ ...formData, password: e.target.value });
+                  }}
                   placeholder="••••••••"
+                  aria-describedby={!isLogin ? 'password-requirement' : undefined}
                   className="w-full pl-9 pr-10 py-2 text-xs glass-input"
                 />
                 <button
@@ -203,6 +238,11 @@ export default function AuthPage() {
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              {!isLogin && (
+                <p id="password-requirement" className={`mt-1 text-[11px] ${formData.password.length >= 6 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                  Password must be at least 6 characters. {formData.password.length > 0 && formData.password.length < 6 ? `${6 - formData.password.length} more needed.` : ''}
+                </p>
+              )}
             </div>
 
             <button

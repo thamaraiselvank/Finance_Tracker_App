@@ -18,6 +18,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import useCurrency from '../utils/useCurrency';
 import PageGuide from '../components/PageGuide';
+import { showToast } from '../utils/toast';
 
 export default function Essentials({ hideAmounts }) {
   const { user, updateProfile } = useAuth();
@@ -88,7 +89,7 @@ export default function Essentials({ hideAmounts }) {
       if (type === 'HEALTH') setEditingHealth(false);
       fetchData();
     } catch (err) {
-      alert('Failed to update insurance cover');
+      showToast('Could not update insurance cover.', 'error');
     }
   };
 
@@ -98,7 +99,7 @@ export default function Essentials({ hideAmounts }) {
       setEditingDependents(false);
       fetchData();
     } catch (err) {
-      alert('Failed to update dependents count');
+      showToast('Could not update the number of dependents.', 'error');
     }
   };
 
@@ -126,7 +127,7 @@ export default function Essentials({ hideAmounts }) {
       });
       fetchData();
     } catch (err) {
-      alert('Failed to save insurance policy');
+      showToast('Could not save the insurance policy.', 'error');
     }
   };
 
@@ -503,7 +504,7 @@ export default function Essentials({ hideAmounts }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <Scale className="w-4 h-4 text-emerald-600" />
-            <h3 className="font-bold text-slate-900 text-sm">Debt Ratio</h3>
+            <h3 className="font-bold text-slate-900 text-sm">Liabilities-to-assets ratio</h3>
           </div>
           <span className={getBadgeClass(healthData?.debt_ratio_status)}>
             • {healthData?.debt_ratio_status || 'No Data'}
@@ -512,8 +513,11 @@ export default function Essentials({ hideAmounts }) {
 
         <div className="flex items-baseline gap-2">
           <span className="text-3xl font-black text-emerald-800">{healthData?.debt_ratio_pct || 0}%</span>
-          <span className="text-xs text-slate-500 font-medium">of assets are debt-funded</span>
+          <span className="text-xs text-slate-500 font-medium">outstanding debt compared with tracked assets</span>
         </div>
+
+        <p className="text-[11px] leading-relaxed text-slate-500">Calculated as total outstanding liabilities ÷ tracked assets. This can exceed 100% when recorded debts are greater than recorded assets. The total uses Wealth assets and active Money account balances; the profile emergency-fund figure is not added separately because it may be the same cash already in an account.</p>
+        {Number(healthData?.total_assets || 0) > 0 && Number(healthData?.debt_ratio_pct || 0) > 100 && <p className="text-xs font-semibold text-rose-600">Your tracked liabilities are {(Number(healthData.total_liabilities || 0) / Number(healthData.total_assets)).toFixed(1)}× your tracked assets.</p>}
 
         <div className="grid grid-cols-2 gap-4 pt-2 text-xs">
           <div>

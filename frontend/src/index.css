@@ -292,13 +292,19 @@ body {
 
 .modal-overlay {
   @apply fixed inset-0 z-50 flex items-center justify-center;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.15);
+  backdrop-filter: none;
 }
 
 .modal-content {
   @apply glass-panel p-6 max-h-[85vh] overflow-y-auto;
   box-shadow: 0 0 40px rgba(124, 58, 237, 0.1), 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+/* Keep the page visible behind Money dialogs. The broad dark-theme background
+   rule below otherwise treats Tailwind's translucent slate utility as opaque. */
+.transaction-modal-backdrop {
+  background-color: rgba(2, 6, 23, 0.34) !important;
 }
 
 /* =========== MISC UTILITIES =========== */
@@ -407,6 +413,11 @@ body {
 
 .theme-light .app-navbar {
   background: rgba(255, 255, 255, 0.88);
+}
+
+.app-navbar {
+  min-height: 3.5rem;
+  flex-shrink: 0;
 }
 
 .theme-dark .brand-tail {
@@ -995,4 +1006,100 @@ ol.ai-response-list {
 
 .theme-dark .ai-quota-fill.is-exhausted {
   background: #fb7185;
+}
+
+/* Budget tab contrast: the app-wide dark theme normalizes utility backgrounds,
+   so these cards and their semantic colors need explicit dark-mode values. */
+.theme-dark .budget-summary-card.budget-summary-limits {
+  background: #073b35 !important;
+  border-color: #167a67 !important;
+}
+
+.theme-dark .budget-summary-card.budget-summary-spent {
+  background: #0b2f49 !important;
+  border-color: #24739a !important;
+}
+
+.theme-dark .budget-summary-card.budget-summary-remaining {
+  background: #29204f !important;
+  border-color: #6550a6 !important;
+}
+
+.theme-dark .budget-summary-card.budget-summary-over {
+  background: #4a202a !important;
+  border-color: #a44356 !important;
+}
+
+.theme-dark .budget-summary-limits .budget-summary-label,
+.theme-dark .budget-summary-limits .budget-summary-detail {
+  color: #a7f3d0 !important;
+}
+
+.theme-dark .budget-summary-limits .budget-summary-value {
+  color: #ecfdf5 !important;
+}
+
+.theme-dark .budget-summary-spent .budget-summary-label,
+.theme-dark .budget-summary-spent .budget-summary-detail {
+  color: #bae6fd !important;
+}
+
+.theme-dark .budget-summary-spent .budget-summary-value {
+  color: #f0f9ff !important;
+}
+
+.theme-dark .budget-summary-remaining .budget-summary-label,
+.theme-dark .budget-summary-remaining .budget-summary-detail {
+  color: #ddd6fe !important;
+}
+
+.theme-dark .budget-summary-remaining .budget-summary-value {
+  color: #f5f3ff !important;
+}
+
+.theme-dark .budget-summary-over .budget-summary-label,
+.theme-dark .budget-summary-over .budget-summary-detail {
+  color: #fecdd3 !important;
+}
+
+.theme-dark .budget-summary-over .budget-summary-value {
+  color: #fff1f2 !important;
+}
+
+.theme-dark .budget-new-category-button.budget-new-category-button {
+  background: #d1fae5 !important;
+  color: #064e3b !important;
+}
+
+.theme-dark .budget-new-category-button.budget-new-category-button:hover {
+  background: #a7f3d0 !important;
+}
+
+.theme-dark .budget-category-card.budget-category-card {
+  background: #0d1b2a !important;
+  border-color: #34485d !important;
+}
+
+.theme-dark .budget-category-card .budget-status-pill.budget-status-on-track {
+  background: #064e3b !important;
+  color: #a7f3d0 !important;
+}
+
+.theme-dark .budget-category-card .budget-status-pill.budget-status-over {
+  background: #5b2632 !important;
+  color: #fecdd3 !important;
+}
+
+.theme-dark .budget-category-card .budget-status-pill.budget-status-not-set {
+  background: #26374a !important;
+  color: #dbeafe !important;
+}
+
+.theme-dark .budget-category-card .budget-field-label,
+.theme-dark .budget-category-card .budget-card-detail {
+  color: #b9cce0 !important;
+}
+
+.theme-dark .budget-category-card .budget-card-detail-over {
+  color: #fda4af !important;
 }

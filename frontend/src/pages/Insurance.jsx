@@ -5,6 +5,8 @@ import { inrInWords } from '../utils/numberWords';
 import useCurrency from '../utils/useCurrency';
 import ConfirmDialog from '../components/ConfirmDialog';
 import PageGuide from '../components/PageGuide';
+import { syncLinkedSchedule } from '../utils/linkedSchedule';
+import { showToast } from '../utils/toast';
 
 const emptyPolicy = {
     policy_name: '',
@@ -32,10 +34,17 @@ export default function InsurancePage() {
   const [editingPolicy, setEditingPolicy] = useState(null);
   const [policyToDelete, setPolicyToDelete] = useState(null);
   const [newPolicy, setNewPolicy] = useState(emptyPolicy);
+  const [accounts, setAccounts] = useState([]);
+  const [policySchedule, setPolicySchedule] = useState({ enabled: true, account_id: '' });
 
   useEffect(() => {
     fetchPolicies();
     fetchSummary();
+    api.get('/accounts').then((response) => {
+      const activeAccounts = (response.data || []).filter((account) => account.is_active !== false);
+      setAccounts(activeAccounts);
+      setPolicySchedule((current) => ({ ...current, account_id: current.account_id || activeAccounts[0]?.id || '' }));
+    }).catch(() => setAccounts([]));
   }, []);
 
   const fetchPolicies = async () => {
@@ -63,10 +72,11 @@ export default function InsurancePage() {
   const openAddPolicy = () => {
     setEditingPolicy(null);
     setNewPolicy(emptyPolicy);
+    setPolicySchedule({ enabled: true, account_id: accounts[0]?.id || '' });
     setShowModal(true);
   };
 
-  const openEditPolicy = (policy) => {
+  const openEditPolicy = async (policy) => {
     setEditingPolicy(policy);
     setNewPolicy({
       policy_name: policy.policy_name || '',
@@ -84,6 +94,13 @@ export default function InsurancePage() {
       next_payment_date: policy.next_payment_date ? policy.next_payment_date.split('T')[0] : '',
       last_payment_date: policy.last_payment_date ? policy.last_payment_date.split('T')[0] : ''
     });
+    try {
+      const response = await api.get('/schedules');
+      const linked = (response.data || []).find((schedule) => String(schedule.insurance_policy_id) === String(policy.id));
+      setPolicySchedule({ enabled: Boolean(linked), account_id: linked?.account_id || accounts[0]?.id || '' });
+    } catch {
+      setPolicySchedule({ enabled: false, account_id: accounts[0]?.id || '' });
+    }
     setShowModal(true);
   };
 
@@ -106,15 +123,37 @@ export default function InsurancePage() {
     };
 
     if (!payload.policy_name || payload.sum_insured <= 0 || payload.annual_premium < 0) {
-      alert('Please enter a valid policy name and sum insured.');
+      showToast('Enter a policy name and a sum insured above zero.', 'error');
+      return;
+    }
+    const firstDueDate = payload.next_payment_date || payload.renewal_date;
+    if (policySchedule.enabled && (!policySchedule.account_id || !firstDueDate || payload.annual_premium <= 0)) {
+      showToast('Choose a payment account, next payment date, and annual premium to link this schedule.', 'error');
       return;
     }
 
     try {
+      let savedPolicy;
       if (editingPolicy) {
-        await api.put(`/insurance/${editingPolicy.id}`, payload);
+        savedPolicy = (await api.put(`/insurance/${editingPolicy.id}`, payload)).data;
       } else {
-        await api.post('/insurance/', payload);
+        savedPolicy = (await api.post('/insurance/', payload)).data;
+      }
+
+      let scheduleWarning = '';
+      try {
+        const periodsPerYear = { MONTHLY: 12, QUARTERLY: 4, HALF_YEARLY: 2, YEARLY: 1 }[payload.payment_frequency] || 1;
+        const frequency = payload.payment_frequency === 'MONTHLY' ? 'MONTHLY'
+          : payload.payment_frequency === 'QUARTERLY' || payload.payment_frequency === 'HALF_YEARLY' ? 'QUARTERLY' : 'YEARLY';
+        const intervalCount = payload.payment_frequency === 'HALF_YEARLY' ? 2 : 1;
+        await syncLinkedSchedule(api, {
+          linkField: 'insurance_policy_id', linkId: savedPolicy.id, enabled: policySchedule.enabled,
+          accountId: policySchedule.account_id, description: `${savedPolicy.policy_name} premium`,
+          amount: payload.annual_premium / periodsPerYear, sourceType: 'INSURANCE_PREMIUM',
+          frequency, intervalCount, startDate: firstDueDate,
+        });
+      } catch (scheduleError) {
+        scheduleWarning = `Policy saved, but its premium schedule could not be updated: ${scheduleError.response?.data?.detail || scheduleError.message}`;
       }
 
       setShowModal(false);
@@ -122,8 +161,10 @@ export default function InsurancePage() {
       setNewPolicy(emptyPolicy);
       fetchPolicies();
       fetchSummary();
+      if (scheduleWarning) showToast(scheduleWarning, 'warning');
     } catch (error) {
       console.error('Error saving policy:', error);
+      showToast(error.response?.data?.detail || 'Could not save the insurance policy. Please try again.', 'error');
     }
   };
 
@@ -336,7 +377,7 @@ export default function InsurancePage() {
 
       {/* Create Policy Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowModal(false); }}>
           <div className="bg-slate-800 rounded-xl p-6 md:p-8 max-w-4xl w-full border border-slate-700 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold text-white mb-6">{editingPolicy ? 'Edit Policy' : 'Add New Policy'}</h2>
 
@@ -481,6 +522,20 @@ export default function InsurancePage() {
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-emerald-700/50 bg-emerald-950/30 p-4">
+                <label className="flex items-start gap-2 text-sm font-semibold text-slate-100">
+                  <input type="checkbox" checked={policySchedule.enabled} onChange={(event) => setPolicySchedule({ ...policySchedule, enabled: event.target.checked })} className="mt-1 accent-emerald-500" />
+                  Link premium payments to Money → Schedule
+                </label>
+                {policySchedule.enabled && <label className="block text-xs font-medium text-slate-300">Premium payment account
+                  <select required value={policySchedule.account_id} onChange={(event) => setPolicySchedule({ ...policySchedule, account_id: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white">
+                    <option value="">Choose account</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                  </select>
+                </label>}
+                {policySchedule.enabled && !accounts.length && <p className="text-xs text-amber-300">Add an account in Money before linking a premium schedule.</p>}
+                <p className="text-[11px] text-slate-400">The schedule uses your payment frequency and divides the annual premium into the expected installment amount.</p>
               </div>
 
               <div>

@@ -27,6 +27,9 @@ class GoalUpdate(BaseModel):
     allocated_monthly_savings: Optional[float] = Field(None, ge=0)
     current_amount: Optional[float] = Field(None, ge=0)
 
+class GoalContributionCreate(BaseModel):
+    amount: float = Field(..., gt=0)
+
 class GoalOut(GoalBase):
     id: UUID | str
     user_id: UUID | str
@@ -34,6 +37,7 @@ class GoalOut(GoalBase):
     status: str = "ACTIVE"
     suggested_monthly_savings: float = 0.0
     progress_percentage: float = 0.0
+    month_contributed: float = 0.0
     created_at: Optional[datetime.datetime] = None
     updated_at: Optional[datetime.datetime] = None
 

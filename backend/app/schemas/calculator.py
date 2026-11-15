@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Dict, Any
 
 # SIP Calculator
@@ -105,11 +105,20 @@ class FireCalculatorInput(BaseModel):
     expected_post_retire_return_pct: Optional[float] = Field(8.0, gt=0)
     expected_inflation_pct: Optional[float] = Field(6.0, ge=0)
 
+    @model_validator(mode="after")
+    def validate_retirement_horizon(self):
+        if self.target_retirement_age <= self.current_age:
+            raise ValueError("Target retirement age must be greater than current age.")
+        if self.life_expectancy is not None and self.life_expectancy <= self.target_retirement_age:
+            raise ValueError("Life expectancy must be later than target retirement age.")
+        return self
+
 class FireMilestone(BaseModel):
-    type: str # Lean FIRE, Standard FIRE (25x), Fat FIRE (33x)
+    type: str # Lean FIRE, Standard FIRE, Fat FIRE
     required_corpus: float
     years_to_reach: float
     projected_age: int
+    additional_monthly_sip: float = 0.0
 
 class FireCalculatorResult(BaseModel):
     current_annual_expense: float

@@ -36,6 +36,8 @@ class TransactionOut(TransactionBase):
     category_color: Optional[str] = None
     subcategory_name: Optional[str] = None
     account_name: Optional[str] = None
+    scheduled_cashflow_id: Optional[UUID | str] = None
+    scheduled_occurrence_date: Optional[datetime.date] = None
     created_at: Optional[datetime.datetime] = None
 
 class TransactionFilter(BaseModel):

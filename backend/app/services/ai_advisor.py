@@ -374,6 +374,26 @@ def get_current_ai_conversation(user_id: str) -> dict:
     return conversation
 
 
+def list_ai_conversations(user_id: str) -> list[dict]:
+    """Return private conversation summaries for the authenticated user."""
+    return fetch_all(
+        """SELECT id, conversation_title, created_at, updated_at,
+                  jsonb_array_length(messages) AS message_count
+           FROM ai_conversations WHERE user_id = %s
+           ORDER BY updated_at DESC LIMIT 50""",
+        (user_id,),
+    ) or []
+
+
+def get_ai_conversation(user_id: str, conversation_id: str) -> dict | None:
+    """Load a conversation only when it belongs to the authenticated user."""
+    return fetch_one(
+        """SELECT id, conversation_title, messages, created_at, updated_at
+           FROM ai_conversations WHERE id = %s AND user_id = %s""",
+        (conversation_id, user_id),
+    )
+
+
 def create_ai_conversation(user_id: str) -> dict:
     conversation = execute_returning(
         """INSERT INTO ai_conversations (user_id, conversation_title, messages)

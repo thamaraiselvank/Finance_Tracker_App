@@ -12,6 +12,8 @@ import {
   Sparkles,
   BookOpenText,
   UserCircle2,
+  ReceiptText,
+  ClipboardCheck,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
@@ -19,20 +21,22 @@ import {
 export default function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, theme }) {
   const mainNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'goals', label: 'Goals', icon: Target },
+    { id: 'wealth', label: 'Wealth', icon: TrendingUp },
     { id: 'debts', label: 'Debts', icon: CreditCard },
     { id: 'insurance', label: 'Insurance', icon: Shield },
-    { id: 'wealth', label: 'Wealth', icon: TrendingUp },
     { id: 'money', label: 'Money', icon: Wallet },
+    { id: 'goals', label: 'Goals', icon: Target },
     { id: 'essentials', label: 'Essentials', icon: Target },
     { id: 'profile', label: 'Profile', icon: UserCircle2 },
   ];
 
   const toolNavItems = [
-    { id: 'learn', label: 'Learn', icon: BookOpenText },
-    { id: 'import', label: 'Import', icon: Upload },
+    { id: 'assessment', label: 'Financial assessment', icon: ClipboardCheck },
+    { id: 'tax', label: 'Tax', icon: ReceiptText },
     { id: 'calculators', label: 'Calculators', icon: Calculator },
     { id: 'ai-advisor', label: 'AI Advisor', icon: Sparkles, badge: 'AI' },
+    { id: 'learn', label: 'Learn', icon: BookOpenText },
+    { id: 'import', label: 'Import', icon: Upload },
   ];
 
   return (

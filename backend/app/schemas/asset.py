@@ -32,6 +32,20 @@ class AssetUpdate(BaseModel):
     notes: Optional[str] = None
     meta_data: Optional[Dict[str, Any]] = None
 
+class RecordAssetDividendInput(BaseModel):
+    actual_amount: float = Field(..., gt=0, le=1_000_000_000)
+    payment_date: datetime.date
+    account_id: UUID
+
+class AssetDividendEventOut(BaseModel):
+    id: UUID | str
+    asset_id: UUID | str
+    ticker: str
+    event_date: datetime.date
+    amount_per_share: float
+    currency: str = "INR"
+    transaction_id: Optional[UUID | str] = None
+
 class AssetOut(AssetBase):
     id: UUID | str
     user_id: UUID | str

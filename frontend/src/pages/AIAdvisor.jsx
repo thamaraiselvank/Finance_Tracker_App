@@ -9,7 +9,9 @@ import {
   ArrowRight,
   Bot,
   Plus,
-  RefreshCw
+  RefreshCw,
+  History,
+  X
 } from 'lucide-react';
 import api from '../services/api';
 import AIResponse from '../components/AIResponse';
@@ -24,6 +26,8 @@ export default function AIAdvisor({ setActiveTab, hideAmounts }) {
   const [conversationLoading, setConversationLoading] = useState(true);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
+  const [conversationHistory, setConversationHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
   const messagesEndRef = useRef(null);
 
   const fetchAudit = async () => {
@@ -38,8 +42,18 @@ export default function AIAdvisor({ setActiveTab, hideAmounts }) {
     }
   };
 
+  const fetchConversationHistory = async () => {
+    try {
+      const { data } = await api.get('/ai/conversations');
+      setConversationHistory(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Failed to load AI conversation history:', error);
+    }
+  };
+
   useEffect(() => {
     fetchAudit();
+    fetchConversationHistory();
     api.get('/ai/quota').then(({ data }) => setQuota(data)).catch(() => {});
     let mounted = true;
     api.get('/ai/conversations/current')
@@ -62,6 +76,25 @@ export default function AIAdvisor({ setActiveTab, hideAmounts }) {
       .finally(() => { if (mounted) setConversationLoading(false); });
     return () => { mounted = false; };
   }, []);
+
+  const openConversation = async (id) => {
+    if (chatLoading || conversationLoading) return;
+    setConversationLoading(true);
+    try {
+      const { data } = await api.get(`/ai/conversations/${id}`);
+      setConversationId(data.id);
+      setChatMessages((data.messages || []).map((message) => ({
+        sender: message.role === 'user' ? 'user' : 'ai',
+        text: message.content,
+        actions: message.actions || [],
+      })));
+      setShowHistory(false);
+    } catch (error) {
+      console.error('Failed to open AI conversation:', error);
+    } finally {
+      setConversationLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!quota?.resets_at) return undefined;
@@ -93,6 +126,7 @@ export default function AIAdvisor({ setActiveTab, hideAmounts }) {
         ...prev,
         { sender: 'ai', text: res.data.answer, actions: res.data.suggested_actions }
       ]);
+      fetchConversationHistory();
     } catch (err) {
       const detail = err.response?.data?.detail;
       if (detail?.quota) setQuota(detail.quota);
@@ -119,6 +153,7 @@ export default function AIAdvisor({ setActiveTab, hideAmounts }) {
     try {
       const { data } = await api.post('/ai/conversations');
       setConversationId(data.id);
+      fetchConversationHistory();
       setChatMessages([{ sender: 'ai', text: "Hi! I’m your Finverse financial assistant. Ask about your spending, savings, debt, investments, insurance, or goals." }]);
     } catch {
       setChatMessages((prev) => [...prev, { sender: 'ai', text: "I couldn’t start a new conversation. Please try again." }]);
@@ -255,7 +290,27 @@ export default function AIAdvisor({ setActiveTab, hideAmounts }) {
           <button type="button" onClick={handleNewChat} disabled={chatLoading || conversationLoading} className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50" title="Start a new conversation">
             <Plus className="h-3.5 w-3.5" /> New chat
           </button>
+          <button type="button" onClick={() => { setShowHistory((shown) => !shown); fetchConversationHistory(); }} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100" title="Conversation history" aria-label="Conversation history">
+            <History className="h-3.5 w-3.5" /> History
+          </button>
         </div>
+
+        {showHistory && (
+          <div className="border-b border-slate-100 bg-white px-4 py-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-bold text-slate-700">Recent conversations</p>
+              <button type="button" onClick={() => setShowHistory(false)} aria-label="Close history" className="rounded p-1 text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="max-h-32 space-y-1 overflow-y-auto">
+              {conversationHistory.length ? conversationHistory.map((conversation) => (
+                <button key={conversation.id} type="button" onClick={() => openConversation(conversation.id)} className={`block w-full rounded-lg px-3 py-2 text-left hover:bg-slate-50 ${conversation.id === conversationId ? 'bg-emerald-50' : ''}`}>
+                  <span className="block truncate text-xs font-semibold text-slate-700">{conversation.conversation_title || 'New conversation'}</span>
+                  <span className="text-[10px] text-slate-400">{conversation.updated_at ? new Date(conversation.updated_at).toLocaleString() : ''} · {conversation.message_count || 0} messages</span>
+                </button>
+              )) : <p className="px-3 py-2 text-xs text-slate-400">No saved conversations yet.</p>}
+            </div>
+          </div>
+        )}
 
         {/* Messages Scroll Area */}
         <div className="flex-1 p-6 overflow-y-auto space-y-4 text-xs">

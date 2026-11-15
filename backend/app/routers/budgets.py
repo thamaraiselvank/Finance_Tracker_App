@@ -25,7 +25,7 @@ def get_budgets(
 
     rows = fetch_all(
         """
-        SELECT c.id AS category_id, c.name AS category_name,
+        SELECT c.id AS category_id, c.name AS category_name, c.icon,
                b.monthly_limit,
                COALESCE(SUM(t.amount), 0) AS spent
         FROM categories c
@@ -35,7 +35,7 @@ def get_budgets(
           ON t.category_id = c.id AND t.user_id = %s AND t.type = 'EXPENSE'
          AND t.date >= %s AND t.date < %s
         WHERE c.type = 'EXPENSE' AND (c.user_id = %s OR c.is_system = TRUE)
-        GROUP BY c.id, c.name, b.monthly_limit
+        GROUP BY c.id, c.name, c.icon, b.monthly_limit
         ORDER BY c.name ASC
         """,
         (user_id, month, year, user_id, start_date, end_date, user_id),
@@ -48,6 +48,7 @@ def get_budgets(
         result.append({
             "category_id": str(row["category_id"]),
             "category_name": row["category_name"],
+            "icon": row.get("icon"),
             "monthly_limit": limit,
             "spent": spent,
             "remaining": limit - spent if limit is not None else None,
@@ -59,7 +60,7 @@ def get_budgets(
 @router.put("", response_model=BudgetOut)
 def save_budget(payload: BudgetUpsert, user_id: str = Depends(get_current_user_id)):
     category = fetch_one(
-        "SELECT id, name FROM categories WHERE id = %s AND type = 'EXPENSE' AND (user_id = %s OR is_system = TRUE)",
+        "SELECT id, name, icon FROM categories WHERE id = %s AND type = 'EXPENSE' AND (user_id = %s OR is_system = TRUE)",
         (payload.category_id, user_id),
     )
     if not category:
@@ -100,6 +101,7 @@ def save_budget(payload: BudgetUpsert, user_id: str = Depends(get_current_user_i
     return {
         "category_id": str(category["id"]),
         "category_name": category["name"],
+        "icon": category.get("icon"),
         "monthly_limit": payload.monthly_limit,
         "spent": spent,
         "remaining": payload.monthly_limit - spent,

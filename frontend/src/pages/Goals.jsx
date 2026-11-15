@@ -5,6 +5,7 @@ import { inrInWords } from '../utils/numberWords';
 import useCurrency from '../utils/useCurrency';
 import ConfirmDialog from '../components/ConfirmDialog';
 import PageGuide from '../components/PageGuide';
+import { showToast } from '../utils/toast';
 
 const emptyGoal = {
     goal_name: '',
@@ -25,6 +26,8 @@ export default function GoalsPage() {
   const [summary, setSummary] = useState(null);
   const [editingGoal, setEditingGoal] = useState(null);
   const [goalToDelete, setGoalToDelete] = useState(null);
+  const [contributionGoal, setContributionGoal] = useState(null);
+  const [contributionAmount, setContributionAmount] = useState('');
   const [newGoal, setNewGoal] = useState(emptyGoal);
 
   useEffect(() => {
@@ -88,7 +91,7 @@ export default function GoalsPage() {
     };
 
     if (!payload.goal_name || payload.target_amount <= 0 || !payload.target_date) {
-      alert('Please enter a goal name, target amount, and target date.');
+      showToast('Enter a goal name, a target amount above zero, and a target date.', 'error');
       return;
     }
 
@@ -106,6 +109,7 @@ export default function GoalsPage() {
       fetchSummary();
     } catch (error) {
       console.error('Error saving goal:', error);
+      showToast(error.response?.data?.detail || 'Could not save the goal. Please try again.', 'error');
     }
   };
 
@@ -113,6 +117,33 @@ export default function GoalsPage() {
     await api.delete(`/goals/${goalToDelete.id}`);
     setGoals((currentGoals) => currentGoals.filter((item) => item.id !== goalToDelete.id));
     await Promise.all([fetchGoals(), fetchSummary()]);
+  };
+
+  const handleContribution = async () => {
+    const amount = Number(contributionAmount);
+    if (!contributionGoal || !Number.isFinite(amount) || amount <= 0) {
+      showToast('Enter a contribution amount above zero.', 'error');
+      return;
+    }
+    try {
+      await api.post(`/goals/${contributionGoal.id}/contributions`, { amount });
+      setContributionGoal(null);
+      setContributionAmount('');
+      await Promise.all([fetchGoals(), fetchSummary()]);
+      showToast('Goal contribution recorded.', 'success');
+    } catch (error) {
+      showToast(error.response?.data?.detail || 'Could not record this contribution.', 'error');
+    }
+  };
+
+  const markGoalAchieved = async (goal) => {
+    try {
+      await api.put(`/goals/${goal.id}`, { status: 'COMPLETED' });
+      await Promise.all([fetchGoals(), fetchSummary()]);
+      showToast(`${goal.goal_name} marked as achieved.`, 'success');
+    } catch (error) {
+      showToast(error.response?.data?.detail || 'Could not update this goal.', 'error');
+    }
   };
 
   const getGoalIcon = (goalType) => {
@@ -311,6 +342,19 @@ export default function GoalsPage() {
                 </div>
               </div>
 
+              {goal.status === 'ACTIVE' && (
+                <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="font-semibold text-slate-300">This month</span>
+                    <span className="text-slate-400">{formatCurrency(goal.month_contributed || 0)} / {formatCurrency(goal.allocated_monthly_savings || 0)}</span>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-700">
+                    <div className="h-full rounded-full bg-cyan-400 transition-all" style={{ width: `${goal.allocated_monthly_savings > 0 ? Math.min(100, (Number(goal.month_contributed || 0) / Number(goal.allocated_monthly_savings)) * 100) : (goal.month_contributed > 0 ? 100 : 0)}%` }} />
+                  </div>
+                  <button type="button" onClick={() => { setContributionGoal(goal); setContributionAmount(''); }} className="mt-2 text-[10px] font-bold text-cyan-300 hover:text-cyan-200">+ Log this month’s contribution</button>
+                </div>
+              )}
+
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="finance-card-meta flex min-w-0 items-center gap-2 px-3 py-2.5">
                   <Calendar size={15} className="finance-accent-info shrink-0" />
@@ -351,6 +395,9 @@ export default function GoalsPage() {
                   <CheckCircle2 size={14} /> Goal achieved. Well done!
                 </div>
               )}
+              {metrics.savedPercentage >= 100 && goal.status === 'ACTIVE' && (
+                <button type="button" onClick={() => markGoalAchieved(goal)} className="mt-2 w-full rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400">Mark as achieved</button>
+              )}
                   </>
                 );
               })()}
@@ -373,7 +420,7 @@ export default function GoalsPage() {
 
       {/* Create Goal Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowModal(false); }}>
           <div className="bg-slate-800 rounded-xl p-6 md:p-8 max-w-3xl w-full border border-slate-700 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold text-white mb-6">{editingGoal ? 'Edit Goal' : 'Create New Goal'}</h2>
 
@@ -501,6 +548,20 @@ export default function GoalsPage() {
           onCancel={() => setGoalToDelete(null)}
           onConfirm={handleDeleteGoal}
         />
+      )}
+      {contributionGoal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setContributionGoal(null); }}>
+          <div className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-800 p-6">
+            <h2 className="text-lg font-bold text-white">Log contribution</h2>
+            <p className="mt-1 text-sm text-slate-400">Add money saved toward {contributionGoal.goal_name}. This updates the goal balance and this month’s progress.</p>
+            <label className="mt-5 block text-xs font-semibold text-slate-300">Contribution ({currencySymbol})</label>
+            <input autoFocus type="number" min="0.01" step="0.01" value={contributionAmount} onChange={(event) => setContributionAmount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-white" />
+            <div className="mt-5 flex gap-3">
+              <button type="button" onClick={() => setContributionGoal(null)} className="flex-1 rounded-lg bg-slate-700 px-4 py-2 text-sm text-white">Cancel</button>
+              <button type="button" onClick={handleContribution} className="flex-1 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950">Save contribution</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

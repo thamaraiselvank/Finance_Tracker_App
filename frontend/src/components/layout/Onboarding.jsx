@@ -13,10 +13,10 @@ export default function Onboarding() {
     currency: user?.currency || 'INR',
     current_age: user?.current_age || 28,
     target_retirement_age: user?.target_retirement_age || 50,
-    monthly_income: user?.monthly_income || 100000,
-    monthly_expense: user?.monthly_expense || 0,
+    monthly_income: Number(user?.monthly_income) > 0 ? user.monthly_income : '',
+    monthly_expense: Number(user?.monthly_expense) > 0 ? user.monthly_expense : '',
     target_savings_rate: user?.target_savings_rate || 30,
-    emergency_fund_amount: user?.emergency_fund_amount || 0,
+    emergency_fund_amount: Number(user?.emergency_fund_amount) > 0 ? user.emergency_fund_amount : '',
     dependents_count: user?.dependents_count || 0
   });
 
@@ -37,6 +37,11 @@ export default function Onboarding() {
     try {
       await updateProfile({
         ...formData,
+        current_age: Number(formData.current_age),
+        target_retirement_age: Number(formData.target_retirement_age),
+        monthly_income: Number(formData.monthly_income),
+        monthly_expense: Number(formData.monthly_expense),
+        emergency_fund_amount: Number(formData.emergency_fund_amount),
         is_onboarded: true
       });
       // The parent component (App.jsx) will re-render automatically when user state updates
@@ -108,28 +113,28 @@ export default function Onboarding() {
                     required
                     min="0"
                     value={formData.monthly_income}
-                    onChange={e => setFormData({ ...formData, monthly_income: Number(e.target.value) })}
+                    onChange={e => setFormData({ ...formData, monthly_income: e.target.value })}
                     className="w-full pl-8 pr-4 py-3 text-sm glass-input font-medium"
                     placeholder="e.g. 100000"
                   />
                 </div>
-                <p className="mt-1 text-xs text-slate-400">{inrInWords(formData.monthly_income, formData.currency)}</p>
+                {formData.monthly_income !== '' && <p className="mt-1 text-xs text-slate-400">{inrInWords(formData.monthly_income, formData.currency)}</p>}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-2">Monthly Essential Expenses</label>
                 <div className="relative">
                   <span className="absolute left-4 top-3 text-slate-500 font-medium">{currencySymbol}</span>
-                  <input type="number" required min="0" value={formData.monthly_expense} onChange={e => setFormData({ ...formData, monthly_expense: Number(e.target.value) })} className="w-full pl-8 pr-4 py-3 text-sm glass-input font-medium" placeholder="e.g. 50000" />
+                  <input type="number" required min="0" value={formData.monthly_expense} onChange={e => setFormData({ ...formData, monthly_expense: e.target.value })} className="w-full pl-8 pr-4 py-3 text-sm glass-input font-medium" placeholder="e.g. 50000" />
                 </div>
-                <p className="mt-1 text-xs text-slate-400">{inrInWords(formData.monthly_expense, formData.currency)}</p>
+                {formData.monthly_expense !== '' && <p className="mt-1 text-xs text-slate-400">{inrInWords(formData.monthly_expense, formData.currency)}</p>}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-2">Current Emergency Fund</label>
                 <div className="relative">
                   <span className="absolute left-4 top-3 text-slate-500 font-medium">{currencySymbol}</span>
-                  <input type="number" required min="0" value={formData.emergency_fund_amount} onChange={e => setFormData({ ...formData, emergency_fund_amount: Number(e.target.value) })} className="w-full pl-8 pr-4 py-3 text-sm glass-input font-medium" placeholder="e.g. 300000" />
+                  <input type="number" required min="0" value={formData.emergency_fund_amount} onChange={e => setFormData({ ...formData, emergency_fund_amount: e.target.value })} className="w-full pl-8 pr-4 py-3 text-sm glass-input font-medium" placeholder="e.g. 300000" />
                 </div>
-                <p className="mt-1 text-xs text-slate-400">{inrInWords(formData.emergency_fund_amount, formData.currency)}</p>
+                {formData.emergency_fund_amount !== '' && <p className="mt-1 text-xs text-slate-400">{inrInWords(formData.emergency_fund_amount, formData.currency)}</p>}
               </div>
             </div>
           )}
@@ -155,7 +160,7 @@ export default function Onboarding() {
                     min="18"
                     max="100"
                     value={formData.current_age}
-                    onChange={e => setFormData({ ...formData, current_age: Number(e.target.value) })}
+                    onChange={e => setFormData({ ...formData, current_age: e.target.value })}
                     className="w-full px-4 py-3 text-sm glass-input font-medium"
                   />
                 </div>
@@ -164,10 +169,10 @@ export default function Onboarding() {
                   <input
                     type="number"
                     required
-                    min={formData.current_age + 1}
+                    min={Number(formData.current_age || 18) + 1}
                     max="100"
                     value={formData.target_retirement_age}
-                    onChange={e => setFormData({ ...formData, target_retirement_age: Number(e.target.value) })}
+                    onChange={e => setFormData({ ...formData, target_retirement_age: e.target.value })}
                     className="w-full px-4 py-3 text-sm glass-input font-medium"
                   />
                 </div>

@@ -11,7 +11,8 @@ import {
   Sparkles,
   X,
   Plus,
-  Trash2
+  Trash2,
+  HelpCircle
 } from 'lucide-react';
 import { 
   CartesianGrid,
@@ -26,6 +27,10 @@ import {
 import api from '../services/api';
 import useCurrency from '../utils/useCurrency';
 import PageGuide from '../components/PageGuide';
+import { showToast } from '../utils/toast';
+import { inrInWords } from '../utils/numberWords';
+
+const numericInputValue = (rawValue) => rawValue;
 
 function CalculatorDataTable({ rows, columns, emptyMessage = 'No yearly values available.' }) {
   return (
@@ -60,8 +65,14 @@ function CalculatorDataTable({ rows, columns, emptyMessage = 'No yearly values a
   );
 }
 
+function AmountWordsHint({ value, currency }) {
+  return value !== '' && Number.isFinite(Number(value)) && Number(value) > 0
+    ? <p className="mt-1 text-[10px] text-slate-500">{inrInWords(value, currency)}</p>
+    : null;
+}
+
 export default function Calculators({ setActiveTab, hideAmounts }) {
-  const { formatCurrency: formatAmount, currencySymbol } = useCurrency();
+  const { formatCurrency: formatAmount, currencySymbol, currency } = useCurrency();
   const [selectedCalc, setSelectedCalc] = useState(null); // 'fire', 'sip', 'lumpsum', 'cagr', 'xirr', 'emi', 'swp'
   const [result, setResult] = useState(null);
   const [resultInputs, setResultInputs] = useState(null);
@@ -106,21 +117,50 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
   };
 
   const handleRunCalc = async (type) => {
+    const validation = {
+      sip: [[sipForm.monthly_investment, 'Monthly investment', true], [sipForm.expected_return_rate_pct, 'Expected return', true], [sipForm.time_period_years, 'Time period', true]],
+      lumpsum: [[lumpForm.total_investment, 'Total investment', true], [lumpForm.expected_return_rate_pct, 'Return rate', true], [lumpForm.time_period_years, 'Time period', true]],
+      cagr: [[cagrForm.initial_value, 'Initial value', true], [cagrForm.final_value, 'Final value', true], [cagrForm.duration_years, 'Duration', true]],
+      emi: [[emiForm.loan_amount, 'Loan amount', true], [emiForm.interest_rate_pct, 'Interest rate', true], [emiForm.tenure_months, 'Tenure', true]],
+      swp: [[swpForm.total_investment, 'Initial investment', true], [swpForm.monthly_withdrawal, 'Monthly withdrawal', true], [swpForm.expected_return_rate_pct, 'Expected return', true], [swpForm.time_period_years, 'Time period', true]],
+      fire: [[fireForm.current_age, 'Current age', true], [fireForm.target_retirement_age, 'Retirement age', true], [fireForm.life_expectancy, 'Life expectancy', true], [fireForm.monthly_expense, 'Monthly living expense', true]],
+    }[type] || [];
+    const missing = validation.find(([value, , mustBePositive]) => value === '' || !Number.isFinite(Number(value)) || (mustBePositive && Number(value) <= 0));
+    if (missing) {
+      showToast(`${missing[1]} must be greater than zero.`, 'error');
+      return;
+    }
+    if (type === 'fire' && Number(fireForm.target_retirement_age) <= Number(fireForm.current_age)) {
+      showToast('Target retirement age must be greater than current age.', 'error');
+      return;
+    }
+    if (type === 'fire' && Number(fireForm.life_expectancy) <= Number(fireForm.target_retirement_age)) {
+      showToast('Life expectancy must be later than your target retirement age.', 'error');
+      return;
+    }
+    if (type === 'xirr') {
+      const hasIncompleteFlow = xirrCashflows.some((flow) => !flow.date || flow.amount === '' || !Number.isFinite(Number(flow.amount)));
+      if (hasIncompleteFlow || !xirrCashflows.some((flow) => Number(flow.amount) < 0) || !xirrCashflows.some((flow) => Number(flow.amount) > 0)) {
+        showToast('Complete each cash flow. XIRR needs at least one investment (negative amount) and one return (positive amount).', 'error');
+        return;
+      }
+    }
     setLoading(true);
     setResult(null);
     try {
       let res;
-      if (type === 'sip') res = await api.post('/calculators/sip', sipForm);
-      else if (type === 'lumpsum') res = await api.post('/calculators/lumpsum', lumpForm);
-      else if (type === 'cagr') res = await api.post('/calculators/cagr', cagrForm);
-      else if (type === 'emi') res = await api.post('/calculators/emi', emiForm);
-      else if (type === 'swp') res = await api.post('/calculators/swp', swpForm);
-      else if (type === 'fire') res = await api.post('/calculators/fire', fireForm);
+      const cleanNumericForm = (form) => Object.fromEntries(Object.entries(form).filter(([, value]) => value !== '').map(([key, value]) => [key, Number(value)]));
+      if (type === 'sip') res = await api.post('/calculators/sip', cleanNumericForm(sipForm));
+      else if (type === 'lumpsum') res = await api.post('/calculators/lumpsum', cleanNumericForm(lumpForm));
+      else if (type === 'cagr') res = await api.post('/calculators/cagr', cleanNumericForm(cagrForm));
+      else if (type === 'emi') res = await api.post('/calculators/emi', cleanNumericForm(emiForm));
+      else if (type === 'swp') res = await api.post('/calculators/swp', cleanNumericForm(swpForm));
+      else if (type === 'fire') res = await api.post('/calculators/fire', cleanNumericForm(fireForm));
       else if (type === 'xirr') res = await api.post('/calculators/xirr', { cash_flows: xirrCashflows });
       setResult(res.data);
       setResultInputs(type === 'fire' ? { ...fireForm } : type === 'swp' ? { ...swpForm } : null);
     } catch (err) {
-      alert(err.response?.data?.detail || 'Calculation error');
+      showToast(err.response?.data?.detail || 'Calculation failed. Check your inputs and try again.', 'error');
     } finally {
       setLoading(false);
     }
@@ -248,24 +288,30 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
               {/* 1. FIRE Calculator Form */}
               {selectedCalc === 'fire' && (
                 <div className="space-y-3 text-xs">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Current Age</label>
+                      <label className="mb-1 flex items-center gap-1 font-semibold text-slate-700">Current Age <HelpCircle className="h-3.5 w-3.5 text-slate-400" title="Your current age determines how many years are available to save." aria-label="Your current age determines how many years are available to save." /></label>
                       <input
                         type="number"
                         value={fireForm.current_age}
-                        onChange={(e) => setFireForm({ ...fireForm, current_age: parseInt(e.target.value) || 28 })}
+                        min="18" max="80" onChange={(e) => setFireForm({ ...fireForm, current_age: numericInputValue(e.target.value) })}
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Target Retirement Age</label>
+                      <label className="mb-1 flex items-center gap-1 font-semibold text-slate-700">Retirement Age <HelpCircle className="h-3.5 w-3.5 text-slate-400" title="The age you want your retirement corpus to be ready. Each FIRE milestone is calculated at this age." aria-label="The age you want your retirement corpus to be ready. Each FIRE milestone is calculated at this age." /></label>
                       <input
                         type="number"
                         value={fireForm.target_retirement_age}
-                        onChange={(e) => setFireForm({ ...fireForm, target_retirement_age: parseInt(e.target.value) || 50 })}
+                        min="18" max="80" onChange={(e) => setFireForm({ ...fireForm, target_retirement_age: numericInputValue(e.target.value) })}
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                       />
+                      <p className="mt-1 text-[10px] text-slate-500">Your selected FIRE target age</p>
+                    </div>
+                    <div>
+                      <label className="mb-1 flex items-center gap-1 font-semibold text-slate-700">Life Expectancy <HelpCircle className="h-3.5 w-3.5 text-slate-400" title="How long the retirement corpus should support your expenses. You can adjust this estimate." aria-label="How long the retirement corpus should support your expenses. You can adjust this estimate." /></label>
+                      <input type="number" value={fireForm.life_expectancy} min="50" max="100" onChange={(e) => setFireForm({ ...fireForm, life_expectancy: numericInputValue(e.target.value) })} className="w-full px-3 py-1.5 border border-slate-300 rounded-lg" />
+                      <p className="mt-1 text-[10px] text-slate-500">{Number(fireForm.life_expectancy) > Number(fireForm.target_retirement_age) ? `${Number(fireForm.life_expectancy) - Number(fireForm.target_retirement_age)} years in retirement` : 'Must be after retirement age'}</p>
                     </div>
                   </div>
 
@@ -274,19 +320,21 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                     <input
                       type="number"
                       value={fireForm.monthly_expense}
-                      onChange={(e) => setFireForm({ ...fireForm, monthly_expense: parseFloat(e.target.value) || 0 })}
+                      min="0" onChange={(e) => setFireForm({ ...fireForm, monthly_expense: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-bold"
                     />
+                    <AmountWordsHint value={fireForm.monthly_expense} currency={currency} />
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Current Portfolio Value ({currencySymbol})</label>
+                    <label className="mb-1 flex items-center gap-1 font-semibold text-slate-700">Current Investable Portfolio ({currencySymbol}) <HelpCircle className="h-3.5 w-3.5 text-slate-400" title="Enter your current investments and savings here. This calculator uses the value you enter; it does not automatically import assets from Wealth." aria-label="Enter your current investments and savings here. This calculator uses the value you enter; it does not automatically import assets from Wealth." /></label>
                     <input
                       type="number"
                       value={fireForm.current_portfolio_value}
-                      onChange={(e) => setFireForm({ ...fireForm, current_portfolio_value: parseFloat(e.target.value) || 0 })}
+                      min="0" onChange={(e) => setFireForm({ ...fireForm, current_portfolio_value: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                     />
+                    <AmountWordsHint value={fireForm.current_portfolio_value} currency={currency} />
                   </div>
 
                   <div>
@@ -294,9 +342,10 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                     <input
                       type="number"
                       value={fireForm.existing_monthly_investment}
-                      onChange={(e) => setFireForm({ ...fireForm, existing_monthly_investment: parseFloat(e.target.value) || 0 })}
+                      min="0" onChange={(e) => setFireForm({ ...fireForm, existing_monthly_investment: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                     />
+                    <AmountWordsHint value={fireForm.existing_monthly_investment} currency={currency} />
                   </div>
 
                   <div className="grid grid-cols-3 gap-2">
@@ -305,7 +354,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       <input
                         type="number"
                         value={fireForm.expected_pre_retire_return_pct}
-                        onChange={(e) => setFireForm({ ...fireForm, expected_pre_retire_return_pct: parseFloat(e.target.value) || 12 })}
+                        min="0" max="100" onChange={(e) => setFireForm({ ...fireForm, expected_pre_retire_return_pct: numericInputValue(e.target.value) })}
                         className="w-full px-2 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -314,7 +363,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       <input
                         type="number"
                         value={fireForm.expected_post_retire_return_pct}
-                        onChange={(e) => setFireForm({ ...fireForm, expected_post_retire_return_pct: parseFloat(e.target.value) || 8 })}
+                        min="0" max="100" onChange={(e) => setFireForm({ ...fireForm, expected_post_retire_return_pct: numericInputValue(e.target.value) })}
                         className="w-full px-2 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -323,7 +372,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       <input
                         type="number"
                         value={fireForm.expected_inflation_pct}
-                        onChange={(e) => setFireForm({ ...fireForm, expected_inflation_pct: parseFloat(e.target.value) || 0 })}
+                        min="0" max="100" onChange={(e) => setFireForm({ ...fireForm, expected_inflation_pct: numericInputValue(e.target.value) })}
                         className="w-full px-2 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -339,9 +388,10 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                     <input
                       type="number"
                       value={sipForm.monthly_investment}
-                      onChange={(e) => setSipForm({ ...sipForm, monthly_investment: parseFloat(e.target.value) || 0 })}
+                      min="0" onChange={(e) => setSipForm({ ...sipForm, monthly_investment: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-bold"
                     />
+                    <AmountWordsHint value={sipForm.monthly_investment} currency={currency} />
                   </div>
                   <div className="grid grid-cols-2 items-end gap-3">
                     <div>
@@ -349,7 +399,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       <input
                         type="number"
                         value={sipForm.expected_return_rate_pct}
-                        onChange={(e) => setSipForm({ ...sipForm, expected_return_rate_pct: parseFloat(e.target.value) || 12 })}
+                        min="0" max="100" onChange={(e) => setSipForm({ ...sipForm, expected_return_rate_pct: numericInputValue(e.target.value) })}
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -358,7 +408,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       <input
                         type="number"
                         value={sipForm.time_period_years}
-                        onChange={(e) => setSipForm({ ...sipForm, time_period_years: parseInt(e.target.value) || 1 })}
+                        min="1" max="60" onChange={(e) => setSipForm({ ...sipForm, time_period_years: numericInputValue(e.target.value) })}
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -368,7 +418,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                     <input
                       type="number"
                       value={sipForm.annual_step_up_pct}
-                      onChange={(e) => setSipForm({ ...sipForm, annual_step_up_pct: parseFloat(e.target.value) || 0 })}
+                      min="0" max="100" onChange={(e) => setSipForm({ ...sipForm, annual_step_up_pct: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                     />
                   </div>
@@ -383,9 +433,10 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                     <input
                       type="number"
                       value={emiForm.loan_amount}
-                      onChange={(e) => setEmiForm({ ...emiForm, loan_amount: parseFloat(e.target.value) || 0 })}
+                      min="0" onChange={(e) => setEmiForm({ ...emiForm, loan_amount: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-bold"
                     />
+                    <AmountWordsHint value={emiForm.loan_amount} currency={currency} />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -394,7 +445,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                         type="number"
                         step="0.01"
                         value={emiForm.interest_rate_pct}
-                        onChange={(e) => setEmiForm({ ...emiForm, interest_rate_pct: parseFloat(e.target.value) || 0 })}
+                        min="0" onChange={(e) => setEmiForm({ ...emiForm, interest_rate_pct: numericInputValue(e.target.value) })}
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -403,7 +454,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       <input
                         type="number"
                         value={emiForm.tenure_months}
-                        onChange={(e) => setEmiForm({ ...emiForm, tenure_months: parseInt(e.target.value) || 12 })}
+                        min="1" max="600" onChange={(e) => setEmiForm({ ...emiForm, tenure_months: numericInputValue(e.target.value) })}
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -419,9 +470,10 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                     <input
                       type="number"
                       value={lumpForm.total_investment}
-                      onChange={(e) => setLumpForm({ ...lumpForm, total_investment: parseFloat(e.target.value) || 0 })}
+                      min="0" onChange={(e) => setLumpForm({ ...lumpForm, total_investment: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-bold"
                     />
+                    <AmountWordsHint value={lumpForm.total_investment} currency={currency} />
                   </div>
                   <div className="grid grid-cols-2 items-end gap-3">
                     <div>
@@ -429,7 +481,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       <input
                         type="number"
                         value={lumpForm.expected_return_rate_pct}
-                        onChange={(e) => setLumpForm({ ...lumpForm, expected_return_rate_pct: parseFloat(e.target.value) || 0 })}
+                        min="0" max="100" onChange={(e) => setLumpForm({ ...lumpForm, expected_return_rate_pct: numericInputValue(e.target.value) })}
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -438,7 +490,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       <input
                         type="number"
                         value={lumpForm.time_period_years}
-                        onChange={(e) => setLumpForm({ ...lumpForm, time_period_years: parseInt(e.target.value) || 1 })}
+                        min="1" max="60" onChange={(e) => setLumpForm({ ...lumpForm, time_period_years: numericInputValue(e.target.value) })}
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -455,9 +507,10 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       type="number"
                       min="0"
                       value={swpForm.total_investment}
-                      onChange={(e) => setSwpForm({ ...swpForm, total_investment: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => setSwpForm({ ...swpForm, total_investment: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-bold"
                     />
+                    <AmountWordsHint value={swpForm.total_investment} currency={currency} />
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">Monthly Withdrawal ({currencySymbol})</label>
@@ -465,9 +518,10 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       type="number"
                       min="0"
                       value={swpForm.monthly_withdrawal}
-                      onChange={(e) => setSwpForm({ ...swpForm, monthly_withdrawal: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => setSwpForm({ ...swpForm, monthly_withdrawal: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                     />
+                    <AmountWordsHint value={swpForm.monthly_withdrawal} currency={currency} />
                   </div>
                   <div className="grid grid-cols-2 items-end gap-3">
                     <div>
@@ -476,7 +530,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                         type="number"
                         step="0.1"
                         value={swpForm.expected_return_rate_pct}
-                        onChange={(e) => setSwpForm({ ...swpForm, expected_return_rate_pct: parseFloat(e.target.value) || 0 })}
+                        onChange={(e) => setSwpForm({ ...swpForm, expected_return_rate_pct: numericInputValue(e.target.value) })}
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -486,7 +540,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                         type="number"
                         step="0.1"
                         value={swpForm.annual_inflation_pct}
-                        onChange={(e) => setSwpForm({ ...swpForm, annual_inflation_pct: parseFloat(e.target.value) || 0 })}
+                        onChange={(e) => setSwpForm({ ...swpForm, annual_inflation_pct: numericInputValue(e.target.value) })}
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -497,7 +551,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       type="number"
                       min="1"
                       value={swpForm.time_period_years}
-                      onChange={(e) => setSwpForm({ ...swpForm, time_period_years: parseInt(e.target.value, 10) || 1 })}
+                      onChange={(e) => setSwpForm({ ...swpForm, time_period_years: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                     />
                   </div>
@@ -512,18 +566,20 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                     <input
                       type="number"
                       value={cagrForm.initial_value}
-                      onChange={(e) => setCagrForm({ ...cagrForm, initial_value: parseFloat(e.target.value) || 0 })}
+                      min="0" onChange={(e) => setCagrForm({ ...cagrForm, initial_value: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                     />
+                    <AmountWordsHint value={cagrForm.initial_value} currency={currency} />
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">Final Value ({currencySymbol})</label>
                     <input
                       type="number"
                       value={cagrForm.final_value}
-                      onChange={(e) => setCagrForm({ ...cagrForm, final_value: parseFloat(e.target.value) || 0 })}
+                      min="0" onChange={(e) => setCagrForm({ ...cagrForm, final_value: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                     />
+                    <AmountWordsHint value={cagrForm.final_value} currency={currency} />
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">Duration (Years)</label>
@@ -531,7 +587,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                       type="number"
                       step="0.1"
                       value={cagrForm.duration_years}
-                      onChange={(e) => setCagrForm({ ...cagrForm, duration_years: parseFloat(e.target.value) || 1 })}
+                      min="0" onChange={(e) => setCagrForm({ ...cagrForm, duration_years: numericInputValue(e.target.value) })}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg"
                     />
                   </div>
@@ -560,7 +616,7 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                         value={cf.amount}
                         onChange={(e) => {
                           const updated = [...xirrCashflows];
-                          updated[idx].amount = parseFloat(e.target.value) || 0;
+                          updated[idx].amount = numericInputValue(e.target.value);
                           setXirrCashflows(updated);
                         }}
                         className="min-w-0 w-full px-2 py-1 border border-slate-300 rounded text-xs"
@@ -610,32 +666,34 @@ export default function Calculators({ setActiveTab, hideAmounts }) {
                         <div className="calculator-result-card p-4 rounded-xl">
                           <span className="calculator-result-label text-[10px] font-bold uppercase">Projected Portfolio</span>
                           <p className="calculator-result-value mt-1 text-xl font-extrabold">{formatCurrency(result.projected_corpus_at_retire_age)}</p>
-                          <span className="calculator-result-caption text-[10px]">At age {resultInputs?.target_retirement_age ?? fireForm.target_retirement_age}</span>
+                          <span className="calculator-result-caption text-[10px]">At age {resultInputs?.target_retirement_age ?? fireForm.target_retirement_age}, from your current portfolio and monthly investment</span>
                         </div>
                         <div className="calculator-result-card p-4 rounded-xl">
-                          <span className="calculator-result-label text-[10px] font-bold uppercase">Required Monthly SIP</span>
+                          <span className="calculator-result-label text-[10px] font-bold uppercase">Additional Monthly SIP</span>
                           <p className="calculator-result-value mt-1 text-xl font-extrabold">{formatCurrency(result.required_monthly_sip)}</p>
-                          <span className="calculator-result-caption text-[10px]">To bridge shortfall</span>
+                          <span className="calculator-result-caption text-[10px]">Add this to your current monthly investment to target age {resultInputs?.target_retirement_age ?? fireForm.target_retirement_age}</span>
                         </div>
                         <div className="calculator-result-card p-4 rounded-xl">
                           <span className="calculator-result-label text-[10px] font-bold uppercase">Future Annual Expenses</span>
                           <p className="calculator-result-value mt-1 text-xl font-extrabold">{formatCurrency(result.future_annual_expense_at_retirement)}</p>
-                          <span className="calculator-result-caption text-[10px]">At {resultInputs?.expected_inflation_pct ?? 6}% annual inflation</span>
+                          <span className="calculator-result-caption text-[10px]">Annual expenses at retirement age {resultInputs?.target_retirement_age ?? fireForm.target_retirement_age}</span>
                         </div>
                       </div>
 
                       {/* Milestones */}
                       <div className="space-y-2">
-                        <h4 className="text-xs font-bold text-slate-700 uppercase">FIRE Milestones</h4>
+                        <h4 className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase">FIRE Milestones <HelpCircle className="h-3.5 w-3.5 text-slate-400" title="These are alternative portfolio targets for your selected retirement age. Lean is 75% of Standard; Standard is at least 25 times projected annual expenses; Fat is 150% of Standard. Monthly SIP shows the additional amount needed beyond your current monthly investment." aria-label="These are alternative portfolio targets for your selected retirement age. Lean is 75% of Standard; Standard is at least 25 times projected annual expenses; Fat is 150% of Standard. Monthly SIP shows the additional amount needed beyond your current monthly investment." /></h4>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                           {(result.milestones || []).map((m, i) => (
                             <div key={i} className="calculator-result-card p-3 rounded-xl">
                               <p className="calculator-result-label font-bold">{m.type}</p>
                               <p className="calculator-result-value mt-1 text-base font-extrabold">{formatCurrency(m.required_corpus)}</p>
-                              <p className="calculator-result-caption mt-0.5 text-[11px]">Est. Age: {m.projected_age} yrs</p>
+                              <p className="calculator-result-caption mt-0.5 text-[11px]">Target at age {m.projected_age}</p>
+                              <p className="mt-2 border-t border-slate-200 pt-2 text-[11px] font-semibold text-emerald-700 dark:border-slate-700 dark:text-emerald-300">Additional monthly SIP: {formatCurrency(m.additional_monthly_sip)}</p>
                             </div>
                           ))}
                         </div>
+                        <p className="text-[11px] text-slate-500">Plan duration: {resultInputs?.target_retirement_age ?? fireForm.target_retirement_age} to {resultInputs?.life_expectancy ?? fireForm.life_expectancy} ({Number(resultInputs?.life_expectancy ?? fireForm.life_expectancy) - Number(resultInputs?.target_retirement_age ?? fireForm.target_retirement_age)} years). The retirement corpus uses this lifespan, projected expenses, inflation, and post-retirement return assumptions.</p>
                       </div>
 
                       {result.yearly_progression?.length > 0 && (

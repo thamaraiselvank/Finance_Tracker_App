@@ -111,6 +111,90 @@ CREATE TABLE IF NOT EXISTS assets (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Dividend announcements are reference data; only a user-recorded cash receipt
+-- creates income in transactions (historical share quantities are not tracked).
+CREATE TABLE IF NOT EXISTS asset_dividend_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    asset_id UUID NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ticker VARCHAR(40) NOT NULL,
+    event_date DATE NOT NULL,
+    amount_per_share NUMERIC(15, 6) NOT NULL CHECK (amount_per_share >= 0),
+    currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+    provider VARCHAR(40) NOT NULL DEFAULT 'Yahoo Finance',
+    transaction_id UUID REFERENCES transactions(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (asset_id, ticker, event_date, amount_per_share)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_dividends_user_asset_date
+    ON asset_dividend_events(user_id, asset_id, event_date DESC);
+
+-- 7A. RECURRING CASH FLOWS (planned items are separate from posted transactions)
+CREATE TABLE IF NOT EXISTS scheduled_cashflows (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+    category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+    asset_id UUID REFERENCES assets(id) ON DELETE SET NULL,
+    description VARCHAR(255) NOT NULL,
+    flow_type VARCHAR(10) NOT NULL CHECK (flow_type IN ('INCOME', 'EXPENSE')),
+    source_type VARCHAR(24) NOT NULL DEFAULT 'OTHER' CHECK (
+        source_type IN ('BILL', 'SUBSCRIPTION', 'EMI', 'INSURANCE_PREMIUM', 'SALARY', 'RENTAL_INCOME', 'DIVIDEND', 'INTEREST', 'OTHER')
+    ),
+    amount NUMERIC(15, 2) NOT NULL CHECK (amount > 0),
+    amount_is_estimate BOOLEAN NOT NULL DEFAULT FALSE,
+    frequency VARCHAR(12) NOT NULL CHECK (frequency IN ('WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY')),
+    interval_count SMALLINT NOT NULL DEFAULT 1 CHECK (interval_count BETWEEN 1 AND 12),
+    start_date DATE NOT NULL,
+    end_date DATE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT scheduled_cashflows_end_after_start CHECK (end_date IS NULL OR end_date >= start_date),
+    CONSTRAINT scheduled_cashflows_income_source CHECK (
+        (flow_type = 'INCOME' AND source_type IN ('SALARY', 'RENTAL_INCOME', 'DIVIDEND', 'INTEREST', 'OTHER'))
+        OR (flow_type = 'EXPENSE' AND source_type IN ('BILL', 'SUBSCRIPTION', 'EMI', 'INSURANCE_PREMIUM', 'OTHER'))
+    )
+);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'scheduled_cashflows'::regclass
+          AND conname = 'scheduled_cashflows_source_type_check'
+          AND pg_get_constraintdef(oid) LIKE '%INSURANCE_PREMIUM%'
+    ) THEN
+        ALTER TABLE scheduled_cashflows DROP CONSTRAINT IF EXISTS scheduled_cashflows_source_type_check;
+        ALTER TABLE scheduled_cashflows ADD CONSTRAINT scheduled_cashflows_source_type_check
+            CHECK (source_type IN ('BILL', 'SUBSCRIPTION', 'EMI', 'INSURANCE_PREMIUM', 'SALARY', 'RENTAL_INCOME', 'DIVIDEND', 'INTEREST', 'OTHER'));
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'scheduled_cashflows'::regclass
+          AND conname = 'scheduled_cashflows_income_source'
+          AND pg_get_constraintdef(oid) LIKE '%INSURANCE_PREMIUM%'
+    ) THEN
+        ALTER TABLE scheduled_cashflows DROP CONSTRAINT IF EXISTS scheduled_cashflows_income_source;
+        ALTER TABLE scheduled_cashflows ADD CONSTRAINT scheduled_cashflows_income_source
+            CHECK (
+                (flow_type = 'INCOME' AND source_type IN ('SALARY', 'RENTAL_INCOME', 'DIVIDEND', 'INTEREST', 'OTHER'))
+                OR (flow_type = 'EXPENSE' AND source_type IN ('BILL', 'SUBSCRIPTION', 'EMI', 'INSURANCE_PREMIUM', 'OTHER'))
+            );
+    END IF;
+END $$;
+
+ALTER TABLE transactions
+    ADD COLUMN IF NOT EXISTS scheduled_cashflow_id UUID REFERENCES scheduled_cashflows(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS scheduled_occurrence_date DATE;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_scheduled_occurrence
+    ON transactions(scheduled_cashflow_id, scheduled_occurrence_date)
+    WHERE scheduled_cashflow_id IS NOT NULL AND scheduled_occurrence_date IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_scheduled_cashflows_user_active
+    ON scheduled_cashflows(user_id, is_active, start_date);
+
 -- 8. LIABILITIES TABLE (DEBTS & LOANS)
 CREATE TABLE IF NOT EXISTS liabilities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -185,7 +269,8 @@ INSERT INTO categories (id, user_id, name, type, icon, color, is_system) VALUES
     ('00000000-0000-0000-0000-000000000017', NULL, 'Insurance Premiums', 'EXPENSE', 'ShieldCheck', '#3B82F6', TRUE),
     ('00000000-0000-0000-0000-000000000018', NULL, 'Loan EMI & Debt Payoff', 'EXPENSE', 'CreditCard', '#DC2626', TRUE),
     ('00000000-0000-0000-0000-000000000019', NULL, 'Education & Courses', 'EXPENSE', 'BookOpen', '#0284C7', TRUE),
-    ('00000000-0000-0000-0000-000000000020', NULL, 'Other Expenses', 'EXPENSE', 'MinusCircle', '#64748B', TRUE)
+    ('00000000-0000-0000-0000-000000000020', NULL, 'Other Expenses', 'EXPENSE', 'MinusCircle', '#64748B', TRUE),
+    ('00000000-0000-0000-0000-000000000021', NULL, 'Social & Travel', 'EXPENSE', 'Plane', '#D946EF', TRUE)
 ON CONFLICT (id) DO NOTHING;
 
 -- SEED DEFAULT SUBCATEGORIES
@@ -207,17 +292,36 @@ FROM (VALUES
     ('00000000-0000-0000-0000-000000000012', 'Electricity Bill'),
     ('00000000-0000-0000-0000-000000000012', 'Water & Gas'),
     ('00000000-0000-0000-0000-000000000012', 'Broadband & Mobile'),
+    ('00000000-0000-0000-0000-000000000012', 'DTH & TV Bill'),
     ('00000000-0000-0000-0000-000000000013', 'Fuel & Petrol'),
-    ('00000000-0000-0000-0000-000000000013', 'Cab & Auto'),
+    ('00000000-0000-0000-0000-000000000013', 'Cab / Taxi'),
+    ('00000000-0000-0000-0000-000000000013', 'Auto / Rickshaw'),
+    ('00000000-0000-0000-0000-000000000013', 'Bike / Scooter'),
     ('00000000-0000-0000-0000-000000000013', 'Vehicle Service'),
     ('00000000-0000-0000-0000-000000000014', 'Doctor Consultations'),
     ('00000000-0000-0000-0000-000000000014', 'Medicines & Pharmacy'),
     ('00000000-0000-0000-0000-000000000014', 'Lab Tests'),
+    ('00000000-0000-0000-0000-000000000015', 'Clothing & Dresses'),
+    ('00000000-0000-0000-0000-000000000015', 'Shoes & Slippers'),
+    ('00000000-0000-0000-0000-000000000015', 'Eyewear & Glasses'),
+    ('00000000-0000-0000-0000-000000000015', 'Accessories'),
+    ('00000000-0000-0000-0000-000000000015', 'Personal Care'),
     ('00000000-0000-0000-0000-000000000017', 'Health Insurance Premium'),
     ('00000000-0000-0000-0000-000000000017', 'Term Life Insurance Premium'),
+    ('00000000-0000-0000-0000-000000000017', 'Bike Insurance Premium'),
+    ('00000000-0000-0000-0000-000000000017', 'Car Insurance Premium'),
+    ('00000000-0000-0000-0000-000000000017', 'Travel Insurance Premium'),
     ('00000000-0000-0000-0000-000000000018', 'Home Loan EMI'),
     ('00000000-0000-0000-0000-000000000018', 'Car Loan EMI'),
-    ('00000000-0000-0000-0000-000000000018', 'Personal Loan EMI')
+    ('00000000-0000-0000-0000-000000000018', 'Personal Loan EMI'),
+    ('00000000-0000-0000-0000-000000000016', 'Movies & Events'),
+    ('00000000-0000-0000-0000-000000000016', 'Hobbies & Games'),
+    ('00000000-0000-0000-0000-000000000019', 'Tuition & School Fees'),
+    ('00000000-0000-0000-0000-000000000019', 'Books & Supplies'),
+    ('00000000-0000-0000-0000-000000000019', 'Online Courses'),
+    ('00000000-0000-0000-0000-000000000021', 'Friends Outing'),
+    ('00000000-0000-0000-0000-000000000021', 'Trips & Vacations'),
+    ('00000000-0000-0000-0000-000000000021', 'Events & Celebrations')
 ) AS seed(category_id, name)
 WHERE NOT EXISTS (
     SELECT 1 FROM subcategories existing
@@ -263,6 +367,18 @@ CREATE TABLE IF NOT EXISTS goals (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Goal contributions provide month-by-month progress without overwriting history.
+CREATE TABLE IF NOT EXISTS goal_contributions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    goal_id UUID NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    amount NUMERIC(15, 2) NOT NULL CHECK (amount > 0),
+    contributed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_goal_contributions_goal_month
+    ON goal_contributions(goal_id, contributed_at DESC);
 
 -- 13. DEBTS TABLE (Extended Debt Tracking)
 CREATE TABLE IF NOT EXISTS debts (
@@ -316,6 +432,19 @@ ALTER TABLE insurance_policies ADD COLUMN IF NOT EXISTS payment_frequency VARCHA
 ALTER TABLE insurance_policies ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) NOT NULL DEFAULT 'PENDING';
 ALTER TABLE insurance_policies ADD COLUMN IF NOT EXISTS next_payment_date DATE;
 ALTER TABLE insurance_policies ADD COLUMN IF NOT EXISTS last_payment_date DATE;
+
+-- Link recurring schedule items to their source obligation. These columns are
+-- added after the debt and insurance policy tables have been created.
+ALTER TABLE scheduled_cashflows
+    ADD COLUMN IF NOT EXISTS liability_id UUID REFERENCES liabilities(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS debt_id UUID REFERENCES debts(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS insurance_policy_id UUID REFERENCES insurance_policies(id) ON DELETE CASCADE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_cashflows_liability
+    ON scheduled_cashflows(liability_id) WHERE liability_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_cashflows_debt
+    ON scheduled_cashflows(debt_id) WHERE debt_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_cashflows_insurance_policy
+    ON scheduled_cashflows(insurance_policy_id) WHERE insurance_policy_id IS NOT NULL;
 
 -- 15. AI CONVERSATIONS TABLE (Chat History)
 CREATE TABLE IF NOT EXISTS ai_conversations (

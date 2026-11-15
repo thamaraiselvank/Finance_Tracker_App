@@ -12,6 +12,7 @@ import {
 import api from '../services/api';
 import useCurrency from '../utils/useCurrency';
 import PageGuide from '../components/PageGuide';
+import { showToast } from '../utils/toast';
 
 export default function Import({ setActiveTab }) {
   const { formatCurrency, currencySymbol } = useCurrency();
@@ -141,18 +142,18 @@ export default function Import({ setActiveTab }) {
   const handleCommitImport = async () => {
     if (!parsedData || !parsedData.preview) return;
     if (importType === 'transactions' && !accountId) {
-      alert('Create or select an account before importing transactions.');
+      showToast('Create or select an account before importing transactions.', 'error');
       return;
     }
     if (importType === 'transactions' && unresolvedTransactions.length > 0) {
-      alert(
+      showToast(
         `${unresolvedTransactions.length} included transaction(s) still need review. ` +
         'Correct the date, description, amount, and type, then mark them reviewed—or exclude them.'
       );
       return;
     }
     if (importType === 'transactions' && includedTransactions.length === 0) {
-      alert('Select at least one transaction to import.');
+      showToast('Select at least one transaction to import.', 'error');
       return;
     }
     setCommitting(true);
@@ -178,7 +179,7 @@ export default function Import({ setActiveTab }) {
       setFile(null);
       setPdfPassword('');
     } catch (err) {
-      alert(err.response?.data?.detail || 'Import failed');
+      showToast(err.response?.data?.detail || 'Import failed. Please review the file and try again.', 'error');
     } finally {
       setCommitting(false);
     }

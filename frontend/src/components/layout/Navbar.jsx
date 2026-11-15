@@ -27,7 +27,7 @@ export default function Navbar({ hideAmounts, setHideAmounts, activeTab, setActi
   };
 
   return (
-    <header className="sticky top-0 z-30 app-navbar backdrop-blur-xl border-b">
+    <header className="app-navbar sticky top-0 z-40 w-full shrink-0 border-b backdrop-blur-xl">
       {/* Main Navbar */}
       <div className="navbar-main px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-3">

@@ -288,19 +288,23 @@ def calculate_fire(
             required_monthly_sip = shortfall / total_months
         can_retire = False
         
-    # Estimate actual age when FIRE will be achieved with current + planned pace
+    # Estimate the age when the current savings pace reaches the standard target.
     yearly_progression = []
     sim_portfolio = current_portfolio
     est_fire_age = target_retirement_age
     found_fire = False
     
-    for y in range(0, 50):
+    for y in range(0, max(0, life_expectancy - current_age) + 1):
         sim_age = current_age + y
-        if sim_age > 90:
-            break
-        # Target corpus needed at that age
-        y_inf = math.pow(1 + inf_r, y)
-        target_at_y = (current_annual_expense * y_inf) * 25.0
+        # Estimate the same finite-horizon FIRE target at each age, using the
+        # selected life expectancy and inflation-adjusted annual expenses.
+        annual_expense_at_age = current_annual_expense * math.pow(1 + inf_r, y)
+        remaining_years = max(1, life_expectancy - sim_age)
+        if abs(real_retire_rate) < 0.001:
+            target_at_y = annual_expense_at_age * remaining_years
+        else:
+            target_at_y = annual_expense_at_age * ((1 - math.pow(1 + real_retire_rate, -remaining_years)) / real_retire_rate)
+        target_at_y = max(target_at_y, annual_expense_at_age * 25.0)
         
         yearly_progression.append({
             "age": sim_age,
@@ -315,17 +319,35 @@ def calculate_fire(
             found_fire = True
             
         # Grow portfolio for next year
-        total_monthly_invest = existing_monthly_investment + (required_monthly_sip if can_retire else 0)
+        total_monthly_invest = existing_monthly_investment
         for _ in range(12):
             sim_portfolio = (sim_portfolio + total_monthly_invest) * (1 + pre_monthly_rate)
             
     if not found_fire:
-        est_fire_age = min(85, current_age + 45)
-        
+        est_fire_age = life_expectancy
+
+    # Milestones are all measured at the user's chosen retirement age. Calculate
+    # the extra monthly contribution each corpus target needs after current savings.
+    sip_growth_factor = (
+        ((math.pow(1 + pre_monthly_rate, total_months) - 1) / pre_monthly_rate) * (1 + pre_monthly_rate)
+        if pre_monthly_rate > 0 and total_months > 0
+        else total_months
+    )
+
+    def milestone(target_corpus: float, label: str) -> Dict[str, Any]:
+        additional_sip = max(0.0, target_corpus - total_projected_corpus) / sip_growth_factor if sip_growth_factor > 0 else 0.0
+        return {
+            "type": label,
+            "required_corpus": round(target_corpus, 2),
+            "years_to_reach": years_to_retirement,
+            "projected_age": target_retirement_age,
+            "additional_monthly_sip": round(additional_sip, 2),
+        }
+
     milestones = [
-        {"type": "Lean FIRE (Frugal / Baseline)", "required_corpus": round(lean_corpus, 2), "years_to_reach": max(0, est_fire_age - current_age - 3), "projected_age": max(current_age, est_fire_age - 3)},
-        {"type": "Standard FIRE (25x Core Expense)", "required_corpus": round(standard_corpus, 2), "years_to_reach": max(0, est_fire_age - current_age), "projected_age": est_fire_age},
-        {"type": "Fat FIRE (Luxurious Lifestyle)", "required_corpus": round(fat_corpus, 2), "years_to_reach": max(0, est_fire_age - current_age + 5), "projected_age": min(85, est_fire_age + 5)}
+        milestone(lean_corpus, "Lean FIRE (75% of standard)"),
+        milestone(standard_corpus, "Standard FIRE (25x annual expense)"),
+        milestone(fat_corpus, "Fat FIRE (150% of standard)"),
     ]
     
     return {
@@ -340,5 +362,5 @@ def calculate_fire(
         "can_retire_at_target_age": total_projected_corpus >= standard_corpus,
         "estimated_fire_age": est_fire_age,
         "milestones": milestones,
-        "yearly_progression": yearly_progression[:35]
+        "yearly_progression": yearly_progression
     }

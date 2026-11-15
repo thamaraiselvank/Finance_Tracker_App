@@ -5,6 +5,8 @@ import { inrInWords } from '../utils/numberWords';
 import useCurrency from '../utils/useCurrency';
 import ConfirmDialog from '../components/ConfirmDialog';
 import PageGuide from '../components/PageGuide';
+import { showToast } from '../utils/toast';
+import { addMonthsToIsoDate, syncLinkedSchedule } from '../utils/linkedSchedule';
 
 const emptyDebt = {
     debt_name: '',
@@ -82,10 +84,17 @@ export default function DebtsPage() {
   const [editingDebt, setEditingDebt] = useState(null);
   const [debtToDelete, setDebtToDelete] = useState(null);
   const [newDebt, setNewDebt] = useState(emptyDebt);
+  const [accounts, setAccounts] = useState([]);
+  const [debtSchedule, setDebtSchedule] = useState({ enabled: true, account_id: '', first_due_date: '' });
 
   useEffect(() => {
     fetchDebts();
     fetchSummary();
+    api.get('/accounts').then((response) => {
+      const activeAccounts = (response.data || []).filter((account) => account.is_active !== false);
+      setAccounts(activeAccounts);
+      setDebtSchedule((current) => ({ ...current, account_id: current.account_id || activeAccounts[0]?.id || '' }));
+    }).catch(() => setAccounts([]));
   }, []);
 
   const fetchDebts = async () => {
@@ -140,10 +149,11 @@ export default function DebtsPage() {
   const openAddDebt = () => {
     setEditingDebt(null);
     setNewDebt(emptyDebt);
+    setDebtSchedule({ enabled: true, account_id: accounts[0]?.id || '', first_due_date: '' });
     setShowModal(true);
   };
 
-  const openEditDebt = (debt) => {
+  const openEditDebt = async (debt) => {
     setEditingDebt(debt);
     setNewDebt({
       debt_name: debt.debt_name || '',
@@ -158,6 +168,17 @@ export default function DebtsPage() {
       total_interest_paid: debt.total_interest_paid ?? '',
       creditor_name: debt.creditor_name || ''
     });
+    try {
+      const response = await api.get('/schedules');
+      const linked = (response.data || []).find((schedule) => String(schedule.debt_id) === String(debt.id));
+      setDebtSchedule({
+        enabled: Boolean(linked),
+        account_id: linked?.account_id || accounts[0]?.id || '',
+        first_due_date: linked?.start_date ? String(linked.start_date).slice(0, 10) : '',
+      });
+    } catch {
+      setDebtSchedule({ enabled: false, account_id: accounts[0]?.id || '', first_due_date: '' });
+    }
     setShowModal(true);
   };
 
@@ -214,24 +235,45 @@ export default function DebtsPage() {
       (payload.tenure_months !== null && payload.tenure_months <= 0) ||
       (payload.start_date && payload.end_date && payload.end_date <= payload.start_date)
     ) {
-      alert('Please enter valid debt details, including a positive tenure and an end date after the start date.');
+      showToast('Enter valid debt details, a positive tenure, and an end date after the start date.', 'error');
+      return;
+    }
+    if (debtSchedule.enabled && (!debtSchedule.account_id || !debtSchedule.first_due_date || payload.monthly_emi <= 0)) {
+      showToast('Choose a payment account and first due date, and enter the monthly EMI to link its schedule.', 'error');
       return;
     }
 
     try {
+      let savedDebt;
       if (editingDebt) {
-        await api.put(`/debts/${editingDebt.id}`, payload);
+        savedDebt = (await api.put(`/debts/${editingDebt.id}`, payload)).data;
       } else {
-        await api.post('/debts/', payload);
+        savedDebt = (await api.post('/debts/', payload)).data;
+      }
+
+      let scheduleWarning = '';
+      try {
+        await syncLinkedSchedule(api, {
+          linkField: 'debt_id', linkId: savedDebt.id, enabled: debtSchedule.enabled,
+          accountId: debtSchedule.account_id, description: `${savedDebt.debt_name} EMI`,
+          amount: savedDebt.monthly_emi, sourceType: 'EMI', frequency: 'MONTHLY',
+          startDate: debtSchedule.first_due_date,
+          endDate: debtSchedule.first_due_date && savedDebt.tenure_months
+            ? addMonthsToIsoDate(debtSchedule.first_due_date, Math.max(0, Number(savedDebt.tenure_months) - 1))
+            : null,
+        });
+      } catch (scheduleError) {
+        scheduleWarning = `Debt saved, but its EMI schedule could not be updated: ${scheduleError.response?.data?.detail || scheduleError.message}`;
       }
 
       setShowModal(false);
       setEditingDebt(null);
       setNewDebt(emptyDebt);
       await Promise.all([fetchDebts(), fetchSummary(), fetchStrategy()]);
+      if (scheduleWarning) showToast(scheduleWarning, 'warning');
     } catch (error) {
       console.error('Error saving debt:', error);
-      alert(error.response?.data?.detail || 'Unable to save this debt. Please try again.');
+      showToast(error.response?.data?.detail || 'Could not save this debt. Please try again.', 'error');
     }
   };
 
@@ -499,7 +541,7 @@ export default function DebtsPage() {
 
       {/* Create Debt Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/[0.15] flex items-center justify-center z-50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowModal(false); }}>
           <div className="bg-slate-800 rounded-xl p-6 md:p-8 max-w-3xl w-full border border-slate-700 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold text-white mb-6">{editingDebt ? 'Edit Debt' : 'Add New Debt'}</h2>
 
@@ -645,6 +687,25 @@ export default function DebtsPage() {
                   placeholder="e.g., HDFC Bank"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white"
                 />
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-emerald-700/50 bg-emerald-950/30 p-4 sm:col-span-2">
+                <label className="flex items-start gap-2 text-sm font-semibold text-slate-100">
+                  <input type="checkbox" checked={debtSchedule.enabled} onChange={(event) => setDebtSchedule({ ...debtSchedule, enabled: event.target.checked })} className="mt-1 accent-emerald-500" />
+                  Link monthly EMI to Money → Schedule
+                </label>
+                {debtSchedule.enabled && <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-medium text-slate-300">Payment account
+                    <select required value={debtSchedule.account_id} onChange={(event) => setDebtSchedule({ ...debtSchedule, account_id: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white">
+                      <option value="">Choose account</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-xs font-medium text-slate-300">First EMI due date
+                    <input required type="date" value={debtSchedule.first_due_date} onChange={(event) => setDebtSchedule({ ...debtSchedule, first_due_date: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white" />
+                  </label>
+                  {!accounts.length && <p className="text-xs text-amber-300 sm:col-span-2">Add an account in Money before linking an EMI schedule.</p>}
+                </div>}
+                <p className="text-[11px] text-slate-400">The schedule uses the EMI amount and tenure. Marking an EMI paid creates or links one expense transaction; it won’t reduce the loan balance by the full EMI.</p>
               </div>
             </div>
 

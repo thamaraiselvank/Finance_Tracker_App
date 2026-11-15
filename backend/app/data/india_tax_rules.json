@@ -1,0 +1,99 @@
+{
+  "country": "IN",
+  "currency": "INR",
+  "version": "2026.1",
+  "tax_year": "2026-27",
+  "effective_from": "2026-04-01",
+  "legislation": "Income-tax Act, 2025",
+  "source_status": "initial_ruleset_reviewed_2026-11-11",
+  "sources": [
+    {
+      "title": "Income and Tax Estimator User Manual",
+      "url": "https://www.incometax.gov.in/iec/foportal/help/all-topics/e-filing-services/income-and-tax-estimator-um",
+      "supports": ["tax_year_transition", "income_heads", "regime_comparison", "deduction_inputs", "tax_credit_inputs"]
+    },
+    {
+      "title": "Objective and scope of the New Act",
+      "url": "https://www.incometax.gov.in/iec/foportal/help/all-topics/e-filing-services/objective-and-scope-new-act",
+      "supports": ["effective_date", "tax_year_definition", "new_regime_default", "section_202", "old_year_transition"]
+    },
+    {
+      "title": "Salaried Individuals for AY 2026-27",
+      "url": "https://www.incometax.gov.in/iec/foportal/help/individual/return-applicable-1",
+      "supports": ["AY_2026_27_regime_slabs", "rebate_87a", "cess", "surcharge", "age_bands", "eligible_income_sources"]
+    },
+    {
+      "title": "Finance Bill 2026: rates for Tax Year 2026-27",
+      "url": "https://www.indiabudget.gov.in/doc/memo.pdf",
+      "supports": ["TY_2026_27_section_202_slabs", "old_regime_opt_out_rates"]
+    },
+    {
+      "title": "Income-tax Act, 2025, section 19",
+      "url": "https://wmstatic-prd.incometaxindia.gov.in/web/guest/w/section-19-199",
+      "supports": ["TY_2026_27_salary_standard_deduction"]
+    }
+  ],
+  "individual": {
+    "default_regime": "new",
+    "regimes": {
+      "new": {
+        "income_tax_slabs": [
+          { "from": 0, "to": 400000, "rate": 0 },
+          { "from": 400000, "to": 800000, "rate": 0.05 },
+          { "from": 800000, "to": 1200000, "rate": 0.10 },
+          { "from": 1200000, "to": 1600000, "rate": 0.15 },
+          { "from": 1600000, "to": 2000000, "rate": 0.20 },
+          { "from": 2000000, "to": 2400000, "rate": 0.25 },
+          { "from": 2400000, "to": null, "rate": 0.30 }
+        ],
+        "rebate_87a": { "resident_only": true, "taxable_income_limit": 1200000, "maximum_amount": 60000 },
+        "standard_deduction": { "amount": 75000, "income_type": "salary_or_pension", "maximum_is_salary_amount": true },
+        "employer_nps_deduction_max_pct_of_salary": 0.14,
+        "deduction_policy": "Most Chapter VI-A deductions and HRA are unavailable; eligible employer NPS contribution and specified statutory exceptions require rule-level handling."
+      },
+      "old": {
+        "slabs_by_age": {
+          "under_60": [
+            { "from": 0, "to": 250000, "rate": 0 },
+            { "from": 250000, "to": 500000, "rate": 0.05 },
+            { "from": 500000, "to": 1000000, "rate": 0.20 },
+            { "from": 1000000, "to": null, "rate": 0.30 }
+          ],
+          "age_60_to_79": [
+            { "from": 0, "to": 300000, "rate": 0 },
+            { "from": 300000, "to": 500000, "rate": 0.05 },
+            { "from": 500000, "to": 1000000, "rate": 0.20 },
+            { "from": 1000000, "to": null, "rate": 0.30 }
+          ],
+          "age_80_plus": [
+            { "from": 0, "to": 500000, "rate": 0 },
+            { "from": 500000, "to": 1000000, "rate": 0.20 },
+            { "from": 1000000, "to": null, "rate": 0.30 }
+          ]
+        },
+        "rebate_87a": { "resident_only": true, "taxable_income_limit": 500000, "maximum_amount": 12500 },
+        "deductions": {
+          "section_80c_limit": 150000,
+          "section_80d_limit": 100000,
+          "home_loan_interest_self_occupied_limit": 200000,
+          "standard_deduction": { "amount": 50000, "verification_required": true }
+        }
+      }
+    },
+    "common": {
+      "health_education_cess_rate": 0.04,
+      "surcharge_thresholds": [5000000, 10000000, 20000000, 50000000],
+      "surcharge_rates_new": [0, 0.10, 0.15, 0.25, 0.25],
+      "surcharge_rates_old": [0, 0.10, 0.15, 0.25, 0.37],
+      "notes": [
+        "Special-rate income such as capital gains must be computed separately from ordinary slab income.",
+        "Rebate, surcharge caps, marginal relief, rounding, age, residence status, and special income need explicit calculation rules before production use."
+      ]
+    }
+  },
+  "prior_year_transition": {
+    "period": "FY 2025-26 / AY 2026-27",
+    "legislation": "Income-tax Act, 1961",
+    "must_not_be_mixed_with_tax_year_2026_27": true
+  }
+}

@@ -5,14 +5,15 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Optional
-from app.core.database import fetch_all, fetch_one, execute_returning, execute_query
+from app.core.database import fetch_all, fetch_one, execute_returning, execute_query, get_db_connection
 from app.core.security import get_current_user_id
 from app.schemas.asset import (
     AssetCreate,
     AssetOut,
     AssetUpdate,
     WealthSummary,
-    AssetClassSummary
+    AssetClassSummary,
+    RecordAssetDividendInput,
 )
 
 router = APIRouter(prefix="/assets", tags=["Assets & Wealth"])
@@ -237,6 +238,141 @@ def refresh_asset_quote(asset: dict, user_id: str) -> dict:
     hydrated = hydrate_asset(updated)
     hydrated["price_updated_at"] = price_updated_at
     return hydrated
+
+
+def _asset_ticker(asset: dict) -> str:
+    meta = asset.get("meta_data") or {}
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except (TypeError, ValueError):
+            meta = {}
+    return str(meta.get("symbol") or meta.get("ticker") or "").strip().upper()
+
+
+@router.get("/{asset_id}/dividends")
+def get_asset_dividends(asset_id: str, user_id: str = Depends(get_current_user_id)):
+    asset = fetch_one("SELECT * FROM assets WHERE id = %s AND user_id = %s", (asset_id, user_id))
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    return fetch_all(
+        """SELECT d.*, t.amount AS received_amount, t.date AS payment_date FROM asset_dividend_events d
+        JOIN assets a ON a.id = d.asset_id AND a.user_id = d.user_id
+        LEFT JOIN transactions t ON t.id = d.transaction_id AND t.user_id = d.user_id
+        WHERE d.asset_id = %s AND d.user_id = %s
+        ORDER BY d.event_date DESC""",
+        (asset_id, user_id),
+    )
+
+
+@router.post("/{asset_id}/refresh-dividends")
+def refresh_asset_dividends(asset_id: str, user_id: str = Depends(get_current_user_id)):
+    asset = fetch_one("SELECT * FROM assets WHERE id = %s AND user_id = %s", (asset_id, user_id))
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    if asset.get("asset_class") != "EQUITY":
+        raise HTTPException(status_code=400, detail="Dividend history is available for equity holdings only.")
+    ticker = _asset_ticker(asset)
+    if not ticker:
+        raise HTTPException(status_code=400, detail="Add a ticker symbol (for example RELIANCE.NS) to this holding first.")
+
+    candidates = [ticker] if "." in ticker else [f"{ticker}.NS", f"{ticker}.BO", ticker]
+    dividend_events = None
+    last_error = "No dividend history was returned."
+    for candidate in candidates:
+        try:
+            response = requests.get(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{candidate}",
+                params={"range": "max", "interval": "1mo", "events": "div"},
+                headers={"User-Agent": "Mozilla/5.0"}, timeout=12,
+            )
+            response.raise_for_status()
+            result = (response.json().get("chart", {}).get("result") or [])
+            if result:
+                dividend_events = result[0].get("events", {}).get("dividends", {})
+                currency = result[0].get("meta", {}).get("currency") or "INR"
+                break
+            last_error = f"No quote or dividend history found for {candidate}."
+        except (requests.RequestException, ValueError) as error:
+            last_error = f"Yahoo Finance request failed for {candidate}: {error}"
+
+    if dividend_events is None:
+        raise HTTPException(status_code=502, detail=last_error)
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            for event in dividend_events.values():
+                event_date = datetime.datetime.fromtimestamp(
+                    int(event.get("date", 0)), tz=datetime.timezone.utc
+                ).date()
+                cur.execute("""
+                    INSERT INTO asset_dividend_events
+                        (asset_id, user_id, ticker, event_date, amount_per_share, currency)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (asset_id, ticker, event_date, amount_per_share)
+                    DO UPDATE SET currency = EXCLUDED.currency, updated_at = CURRENT_TIMESTAMP
+                """, (asset_id, user_id, candidate, event_date, float(event.get("amount") or 0), currency))
+    return {
+        "ticker": candidate,
+        "updated_count": len(dividend_events),
+        "events": fetch_all(
+            """SELECT d.*, t.amount AS received_amount, t.date AS payment_date FROM asset_dividend_events d
+            JOIN assets a ON a.id = d.asset_id AND a.user_id = d.user_id
+            LEFT JOIN transactions t ON t.id = d.transaction_id AND t.user_id = d.user_id
+            WHERE d.asset_id = %s AND d.user_id = %s
+            ORDER BY d.event_date DESC""",
+            (asset_id, user_id),
+        ),
+    }
+
+
+@router.post("/{asset_id}/dividends/{event_id}/record")
+def record_asset_dividend(
+    asset_id: str,
+    event_id: str,
+    payload: RecordAssetDividendInput,
+    user_id: str = Depends(get_current_user_id),
+):
+    # Insert the actual receipt and link it to the announcement atomically, so a
+    # repeated click cannot duplicate income or update the account twice.
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT * FROM asset_dividend_events
+                WHERE id = %s AND asset_id = %s AND user_id = %s FOR UPDATE
+            """, (event_id, asset_id, user_id))
+            event = cur.fetchone()
+            if not event:
+                raise HTTPException(status_code=404, detail="Dividend event not found.")
+            if event["transaction_id"]:
+                raise HTTPException(status_code=409, detail="This dividend has already been recorded in Money.")
+            cur.execute("SELECT id, name FROM accounts WHERE id = %s AND user_id = %s AND is_active = TRUE", (payload.account_id, user_id))
+            account = cur.fetchone()
+            if not account:
+                raise HTTPException(status_code=404, detail="Active account not found.")
+            cur.execute("""
+                SELECT c.id AS category_id, sc.id AS subcategory_id
+                FROM categories c JOIN subcategories sc ON sc.category_id = c.id
+                WHERE c.user_id IS NULL AND c.type = 'INCOME'
+                  AND LOWER(c.name) = 'investments & returns' AND LOWER(sc.name) = 'dividends'
+                LIMIT 1
+            """)
+            category = cur.fetchone()
+            if not category:
+                raise HTTPException(status_code=500, detail="The Investments & Returns / Dividends category is not configured.")
+            cur.execute("""
+                INSERT INTO transactions
+                    (user_id, account_id, category_id, subcategory_id, type, amount, date, description, notes, tags)
+                VALUES (%s, %s, %s, %s, 'INCOME', %s, %s, %s, %s, 'dividend,taxable_income')
+                RETURNING id
+            """, (
+                user_id, payload.account_id, category["category_id"], category["subcategory_id"],
+                payload.actual_amount, payload.payment_date,
+                f"{event['ticker']} dividend", f"Actual dividend received; announcement date {event['event_date']}; {event['amount_per_share']} per share.",
+            ))
+            transaction = cur.fetchone()
+            cur.execute("UPDATE accounts SET balance = balance + %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s AND user_id = %s", (payload.actual_amount, payload.account_id, user_id))
+            cur.execute("UPDATE asset_dividend_events SET transaction_id = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (transaction["id"], event_id))
+    return {"message": "Dividend recorded in Money and linked to this holding.", "transaction_id": transaction["id"]}
 
 
 @router.post("/refresh-prices")

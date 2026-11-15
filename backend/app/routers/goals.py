@@ -4,7 +4,8 @@ from uuid import UUID
 from app.core.database import fetch_one, fetch_all, execute_returning, execute_query
 from app.core.security import get_current_user_id
 from app.schemas.goal import (
-    GoalCreate, GoalUpdate, GoalOut, GoalProgressSummary, GoalWithProjection
+    GoalCreate, GoalUpdate, GoalOut, GoalProgressSummary, GoalWithProjection,
+    GoalContributionCreate,
 )
 from datetime import datetime, date
 from math import ceil
@@ -68,24 +69,60 @@ def list_goals(status_filter: Optional[str] = None, user_id: str = Depends(get_c
     try:
         if status_filter:
             goals = fetch_all("""
-                SELECT id, user_id, goal_name, goal_type, target_amount, current_amount,
-                       target_date, priority, description, status, suggested_monthly_savings,
-                       allocated_monthly_savings, progress_percentage, created_at, updated_at
-                FROM goals WHERE user_id = %s AND status = %s
-                ORDER BY priority ASC, target_date ASC
+                SELECT g.id, g.user_id, g.goal_name, g.goal_type, g.target_amount, g.current_amount,
+                       g.target_date, g.priority, g.description, g.status, g.suggested_monthly_savings,
+                       g.allocated_monthly_savings, g.progress_percentage, g.created_at, g.updated_at,
+                       COALESCE((SELECT SUM(gc.amount) FROM goal_contributions gc WHERE gc.goal_id = g.id
+                         AND gc.contributed_at >= date_trunc('month', CURRENT_DATE)
+                         AND gc.contributed_at < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'), 0) AS month_contributed
+                FROM goals g WHERE g.user_id = %s AND g.status = %s
+                ORDER BY g.priority ASC, g.target_date ASC
             """, (user_id, status_filter))
         else:
             goals = fetch_all("""
-                SELECT id, user_id, goal_name, goal_type, target_amount, current_amount,
-                       target_date, priority, description, status, suggested_monthly_savings,
-                       allocated_monthly_savings, progress_percentage, created_at, updated_at
-                FROM goals WHERE user_id = %s
-                ORDER BY priority ASC, target_date ASC
+                SELECT g.id, g.user_id, g.goal_name, g.goal_type, g.target_amount, g.current_amount,
+                       g.target_date, g.priority, g.description, g.status, g.suggested_monthly_savings,
+                       g.allocated_monthly_savings, g.progress_percentage, g.created_at, g.updated_at,
+                       COALESCE((SELECT SUM(gc.amount) FROM goal_contributions gc WHERE gc.goal_id = g.id
+                         AND gc.contributed_at >= date_trunc('month', CURRENT_DATE)
+                         AND gc.contributed_at < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'), 0) AS month_contributed
+                FROM goals g WHERE g.user_id = %s
+                ORDER BY g.priority ASC, g.target_date ASC
             """, (user_id,))
         return goals or []
     except Exception as e:
         logger.error(f"Error fetching goals: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/{goal_id}/contributions", response_model=GoalOut)
+def add_goal_contribution(goal_id: str, payload: GoalContributionCreate, user_id: str = Depends(get_current_user_id)):
+    """Record a contribution and immediately update the saved balance."""
+    try:
+        goal = fetch_one("SELECT id, target_amount, current_amount, status FROM goals WHERE id = %s AND user_id = %s", (goal_id, user_id))
+        if not goal:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+        if goal.get("status") != "ACTIVE":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only active goals can receive contributions.")
+        updated = execute_returning("""WITH contribution AS (
+            INSERT INTO goal_contributions (goal_id, user_id, amount) VALUES (%s, %s, %s)
+            RETURNING amount
+        )
+        UPDATE goals SET current_amount = current_amount + (SELECT amount FROM contribution),
+            progress_percentage = LEAST(((current_amount + (SELECT amount FROM contribution)) / NULLIF(target_amount, 0)) * 100, 100),
+            status = CASE WHEN current_amount + (SELECT amount FROM contribution) >= target_amount THEN 'COMPLETED' ELSE status END,
+            updated_at = CURRENT_TIMESTAMP WHERE id = %s AND user_id = %s
+            RETURNING id, user_id, goal_name, goal_type, target_amount, current_amount, target_date,
+              priority, description, status, suggested_monthly_savings, allocated_monthly_savings,
+              progress_percentage, created_at, updated_at""",
+            (goal_id, user_id, payload.amount, goal_id, user_id),
+        )
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error recording goal contribution: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not record this contribution.")
 
 @router.get("/summary/progress", response_model=GoalProgressSummary)
 def get_goals_progress(user_id: str = Depends(get_current_user_id)):

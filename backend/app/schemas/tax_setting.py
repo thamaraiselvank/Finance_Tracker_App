@@ -1,7 +1,8 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from uuid import UUID
 import datetime
+from pydantic import model_validator
 
 class TaxSettingBase(BaseModel):
     financial_year: str = Field(..., description="e.g., 'FY2023-24'")
@@ -89,3 +90,33 @@ class InvestmentForTaxSaving(BaseModel):
     lock_in_period: int  # months
     min_return_percentage: float
     recommended: bool = False
+
+
+class IndiaTaxEstimateInput(BaseModel):
+    tax_year: str = Field("2026-27", min_length=7, max_length=10)
+    age: int = Field(30, ge=18, le=120)
+    residential_status: Literal["resident", "non_resident"] = "resident"
+    salary_income: float = Field(0, ge=0, le=1_000_000_000)
+    interest_income: float = Field(0, ge=0, le=1_000_000_000)
+    dividend_income: float = Field(0, ge=0, le=1_000_000_000)
+    rental_taxable_income: float = Field(0, ge=0, le=1_000_000_000)
+    business_taxable_income: float = Field(0, ge=0, le=1_000_000_000)
+    other_regular_income: float = Field(0, ge=0, le=1_000_000_000)
+    section_80c: float = Field(0, ge=0, le=1_000_000_000)
+    employee_pf_contribution: float = Field(0, ge=0, le=1_000_000_000)
+    section_80d: float = Field(0, ge=0, le=1_000_000_000)
+    home_loan_interest_self_occupied: float = Field(0, ge=0, le=1_000_000_000)
+    other_old_regime_deductions: float = Field(0, ge=0, le=1_000_000_000)
+    employer_nps_deduction_new: float = Field(0, ge=0, le=1_000_000_000)
+    tax_already_paid: float = Field(0, ge=0, le=1_000_000_000)
+
+    @model_validator(mode="after")
+    def require_income_or_paid_tax(self):
+        values = (
+            self.salary_income, self.interest_income, self.dividend_income,
+            self.rental_taxable_income, self.business_taxable_income,
+            self.other_regular_income, self.tax_already_paid,
+        )
+        if not any(values):
+            raise ValueError("Enter at least one income amount or tax already paid.")
+        return self

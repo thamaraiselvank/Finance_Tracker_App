@@ -29,6 +29,8 @@ import api from '../services/api';
 import useCurrency from '../utils/useCurrency';
 import ConfirmDialog from '../components/ConfirmDialog';
 import PageGuide from '../components/PageGuide';
+import Schedule from '../components/Schedule';
+import { showToast } from '../utils/toast';
 
 const formatLocalDate = (date) => (
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -39,7 +41,20 @@ const getCurrentMonthStart = () => {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
 };
 
-export default function Money({ hideAmounts }) {
+const CATEGORY_EMOJIS = {
+  Briefcase: '💼', TrendingUp: '📈', Laptop: '💻', Home: '🏠', PlusCircle: '➕',
+  Utensils: '🍽️', Zap: '⚡', Car: '🚗', Activity: '🩺', ShoppingBag: '🛍️',
+  Film: '🎬', ShieldCheck: '🛡️', CreditCard: '💳', BookOpen: '📚',
+  MinusCircle: '➖', Plane: '✈️', Tag: '🏷️',
+};
+
+const getCategoryEmoji = (category) => {
+  const nameStartsWithEmoji = /^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(String(category?.name || '').trim());
+  if (nameStartsWithEmoji) return '';
+  return CATEGORY_EMOJIS[category?.icon] || category?.icon || '🏷️';
+};
+
+export default function Money({ hideAmounts, focusDate, setActiveTab }) {
   const { formatCurrency: formatCurrencyValue, currencySymbol } = useCurrency();
   const [activeSubTab, setActiveSubTab] = useState('transactions'); // 'transactions', 'budget', 'accounts', 'insights'
   const [transactions, setTransactions] = useState([]);
@@ -61,9 +76,11 @@ export default function Money({ hideAmounts }) {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
   });
   const [monthBuckets, setMonthBuckets] = useState([]);
+  const [monthBucketsLoading, setMonthBucketsLoading] = useState(true);
   const [monthDataMap, setMonthDataMap] = useState({});
   const [loadingMonths, setLoadingMonths] = useState({});
   const monthRequestVersion = useRef(0);
+  const monthListRequestVersion = useRef(0);
   const summaryRequestVersion = useRef(0);
   const accountSummaryInitialized = useRef(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -76,6 +93,10 @@ export default function Money({ hideAmounts }) {
     start: getCurrentMonthStart(),
     end: formatLocalDate(new Date()),
   }));
+  const [datePreset, setDatePreset] = useState('this_month');
+  const [dividendTransactions, setDividendTransactions] = useState([]);
+  const [dividendTransactionsLoading, setDividendTransactionsLoading] = useState(false);
+  const [dividendTransactionsError, setDividendTransactionsError] = useState('');
   const transactionFilters = useRef({
     filterType,
     selectedAccountId,
@@ -106,6 +127,7 @@ export default function Money({ hideAmounts }) {
   const [newCatForm, setNewCatForm] = useState({
     name: '',
     type: 'EXPENSE',
+    icon: '🏷️',
     color: '#10B981',
     subcategories: '',
   });
@@ -140,13 +162,15 @@ export default function Money({ hideAmounts }) {
   };
 
   const fetchData = async () => {
-    const requestVersion = ++monthRequestVersion.current;
+    const requestVersion = ++monthListRequestVersion.current;
+    monthRequestVersion.current += 1;
     summaryRequestVersion.current += 1;
     setSummary(null);
     setSummaryLoading(true);
     setSummaryError('');
     setTransactionListError('');
     setMonthBuckets([]);
+    setMonthBucketsLoading(true);
     setMonthDataMap({});
     setLoadingMonths({});
     setTransactions([]);
@@ -159,7 +183,7 @@ export default function Money({ hideAmounts }) {
       fetchAccounts(),
       api.get('/transactions/months'),
     ]);
-    if (requestVersion !== monthRequestVersion.current) return;
+    if (requestVersion !== monthListRequestVersion.current) return;
 
     const [, monthsResult] = results;
     if (monthsResult.status === 'fulfilled') {
@@ -168,6 +192,7 @@ export default function Money({ hideAmounts }) {
       console.error('Failed to fetch transaction months:', monthsResult.reason);
       setTransactionListError('Unable to load the transaction list. Please try again.');
     }
+    setMonthBucketsLoading(false);
     await Promise.all([categoriesRequest, summaryRequest]);
   };
 
@@ -273,6 +298,44 @@ export default function Money({ hideAmounts }) {
   }, []);
 
   useEffect(() => {
+    if (!focusDate) return;
+    const value = String(focusDate).slice(0, 10);
+    const [year, month, day] = value.split('-').map(Number);
+    if (!year || !month || !day) return;
+    setActiveSubTab('transactions');
+    setFilterType('INCOME');
+    setSelectedAccountId('');
+    setSearchQuery('');
+    setDatePreset('custom');
+    setDateRange({ start: `${year}-${String(month).padStart(2, '0')}-01`, end: value });
+  }, [focusDate]);
+
+  useEffect(() => {
+    if (activeSubTab !== 'dividends') return;
+    let cancelled = false;
+    setDividendTransactionsLoading(true);
+    setDividendTransactionsError('');
+    api.get('/transactions', {
+      params: {
+        type: 'INCOME', start_date: dateRange.start, end_date: dateRange.end,
+        account_id: selectedAccountId || undefined, limit: 500,
+      },
+    }).then(({ data }) => {
+      if (cancelled) return;
+      const rows = Array.isArray(data) ? data : [];
+      setDividendTransactions(rows.filter((row) => (
+        String(row.subcategory_name || '').toLowerCase() === 'dividends'
+        || (String(row.category_name || '').toLowerCase().includes('investment') && String(row.description || '').toLowerCase().includes('dividend'))
+      )));
+    }).catch((error) => {
+      if (!cancelled) setDividendTransactionsError(error.response?.data?.detail || 'Could not load dividend receipts.');
+    }).finally(() => {
+      if (!cancelled) setDividendTransactionsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [activeSubTab, dateRange, selectedAccountId, budgetRefresh]);
+
+  useEffect(() => {
     if (activeSubTab === 'accounts') fetchAccounts();
   }, [activeSubTab]);
 
@@ -312,6 +375,20 @@ export default function Money({ hideAmounts }) {
   }, [filterType, selectedAccountId, searchQuery, dateRange]);
 
   useEffect(() => {
+    if (!focusDate || activeSubTab !== 'transactions') return;
+    const value = String(focusDate).slice(0, 10);
+    const [year, month] = value.split('-').map(Number);
+    if (!year || !month) return;
+    const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+    const monthStart = `${monthKey}-01`;
+    const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`;
+    setExpandedYears((current) => ({ ...current, [year]: true }));
+    setExpandedMonths((current) => ({ ...current, [monthKey]: true }));
+    const overlapsSelectedRange = dateRange.start <= monthEnd && dateRange.end >= monthStart;
+    if (overlapsSelectedRange && !monthDataMap[monthKey] && !loadingMonths[monthKey]) fetchMonthTransactions(year, month);
+  }, [focusDate, activeSubTab, dateRange, monthDataMap, loadingMonths]);
+
+  useEffect(() => {
     if (activeSubTab !== 'budget') return;
     const [year, month] = budgetPeriod.split('-').map(Number);
     setBudgetsLoading(true);
@@ -327,7 +404,7 @@ export default function Money({ hideAmounts }) {
       })
       .catch((err) => {
         console.error('Failed to fetch budgets:', err);
-        alert(err.response?.data?.detail || 'Failed to load monthly budgets');
+        showToast(err.response?.data?.detail || 'Could not load monthly budgets.', 'error');
       })
       .finally(() => setBudgetsLoading(false));
   }, [activeSubTab, budgetPeriod, budgetRefresh]);
@@ -372,7 +449,7 @@ export default function Money({ hideAmounts }) {
       });
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.detail || `Failed to ${editingTransaction ? 'update' : 'save'} transaction`);
+      showToast(err.response?.data?.detail || `Could not ${editingTransaction ? 'update' : 'save'} the transaction.`, 'error');
     }
   };
 
@@ -466,7 +543,7 @@ export default function Money({ hideAmounts }) {
   const toggleYear = (year) => {
     setExpandedYears((prev) => ({
       ...prev,
-      [year]: !(prev[year] ?? true),
+      [year]: !(prev[year] ?? false),
     }));
   };
 
@@ -487,7 +564,7 @@ export default function Money({ hideAmounts }) {
   const toggleDate = (dateKey) => {
     setExpandedDates((prev) => ({
       ...prev,
-      [dateKey]: !(prev[dateKey] ?? true),
+      [dateKey]: !(prev[dateKey] ?? false),
     }));
   };
 
@@ -501,11 +578,12 @@ export default function Money({ hideAmounts }) {
       const response = await api.post('/categories', {
         name: newCatForm.name,
         type: newCatForm.type,
+        icon: newCatForm.icon || '🏷️',
         color: newCatForm.color,
         subcategories: subcats,
       });
       setShowAddCategoryModal(false);
-      setNewCatForm({ name: '', type: 'EXPENSE', color: '#10B981', subcategories: '' });
+      setNewCatForm({ name: '', type: 'EXPENSE', icon: '🏷️', color: '#10B981', subcategories: '' });
       setBudgetRefresh((current) => current + 1);
       await fetchData();
       setForm((current) => ({
@@ -515,7 +593,7 @@ export default function Money({ hideAmounts }) {
         subcategory_id: '',
       }));
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to create category');
+      showToast(err.response?.data?.detail || 'Could not create the category.', 'error');
     }
   };
 
@@ -538,7 +616,7 @@ export default function Money({ hideAmounts }) {
       setNewAccountForm({ name: '', account_type: 'SAVINGS', balance: '', institution: '' });
       await fetchData();
     } catch (err) {
-      alert(err.response?.data?.detail || `Failed to ${editingAccount ? 'update' : 'create'} account`);
+      showToast(err.response?.data?.detail || `Could not ${editingAccount ? 'update' : 'create'} the account.`, 'error');
     }
   };
 
@@ -556,7 +634,7 @@ export default function Money({ hideAmounts }) {
   const openAddTransaction = () => {
     if (accountsLoading) return;
     if (accountsError) {
-      alert(accountsError);
+      showToast(accountsError, 'error');
       return;
     }
     if (accounts.length === 0) {
@@ -596,7 +674,7 @@ export default function Money({ hideAmounts }) {
         budget.category_id === categoryId ? res.data : budget
       )));
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to save monthly limit');
+      showToast(err.response?.data?.detail || 'Could not save the monthly limit.', 'error');
     }
   };
 
@@ -604,17 +682,66 @@ export default function Money({ hideAmounts }) {
   const transactionCategories = categories.filter(
     (category) => String(category.type || '').trim().toUpperCase() === form.type
   );
+  const systemTransactionCategories = transactionCategories.filter((category) => category.is_system);
+  const customTransactionCategories = transactionCategories.filter((category) => !category.is_system);
   const totalTransactionCount = monthBuckets.reduce((count, bucket) => count + Number(bucket.transaction_count || 0), 0);
+  const chooseDatePreset = (preset) => {
+    setDatePreset(preset);
+    if (preset === 'custom') return;
+    const today = new Date();
+    const todayString = formatLocalDate(today);
+    let start;
+    let end = todayString;
+    if (preset === 'this_month') {
+      start = getCurrentMonthStart();
+    } else if (preset === 'last_month') {
+      const first = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      start = formatLocalDate(first);
+      end = formatLocalDate(new Date(today.getFullYear(), today.getMonth(), 0));
+    } else if (preset === 'last_30_days') {
+      const first = new Date(today);
+      first.setDate(today.getDate() - 29);
+      start = formatLocalDate(first);
+    } else if (preset === 'year_to_date') {
+      start = `${today.getFullYear()}-01-01`;
+    } else {
+      start = '2000-01-01';
+    }
+    setDateRange({ start, end });
+  };
+  const dateRangeControls = (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <label className="flex items-center gap-1.5 font-medium text-slate-500">
+        Period
+        <select aria-label="Choose date range" value={datePreset} onChange={(event) => chooseDatePreset(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-semibold text-slate-700">
+          <option value="this_month">This month</option>
+          <option value="last_month">Last month</option>
+          <option value="last_30_days">Last 30 days</option>
+          <option value="year_to_date">Year to date</option>
+          <option value="all_time">All time</option>
+          <option value="custom">Custom range</option>
+        </select>
+      </label>
+      {datePreset === 'custom' && <>
+        <label className="flex items-center gap-1.5 font-medium text-slate-500">From
+          <input aria-label="Start date" type="date" value={dateRange.start} max={dateRange.end} onChange={(event) => setDateRange((current) => ({ ...current, start: event.target.value, end: event.target.value > current.end ? event.target.value : current.end }))} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-slate-700" />
+        </label>
+        <label className="flex items-center gap-1.5 font-medium text-slate-500">To
+          <input aria-label="End date" type="date" value={dateRange.end} min={dateRange.start} max={formatLocalDate(new Date())} onChange={(event) => setDateRange((current) => ({ ...current, start: event.target.value < current.start ? event.target.value : current.start, end: event.target.value }))} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-slate-700" />
+        </label>
+      </>}
+    </div>
+  );
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Transactions</h1>
-          <p className="text-xs text-slate-500 mt-0.5">{totalTransactionCount} entries</p>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{activeSubTab === 'schedule' ? 'Cash flow schedule' : activeSubTab === 'transactions' ? 'Transactions' : `Money · ${activeSubTab}`}</h1>
+          <p className="text-xs text-slate-500 mt-0.5">{activeSubTab === 'transactions' ? `${totalTransactionCount} entries` : activeSubTab === 'schedule' ? 'Expected and recurring income and expenses' : ''}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        {activeSubTab === 'transactions' && <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
@@ -658,19 +785,19 @@ export default function Money({ hideAmounts }) {
           >
             <Plus className="w-4 h-4" /> Add
           </button>
-        </div>
+        </div>}
       </div>
 
       <PageGuide
-        title={activeSubTab === 'transactions' ? 'Transactions: money in and money out' : `Money: ${activeSubTab}`}
-        summary={activeSubTab === 'transactions' ? 'Record income, expenses, and transfers so your cash-flow view reflects what happened.' : activeSubTab === 'budget' ? 'Set monthly spending limits by category, then compare them with your recorded expenses.' : activeSubTab === 'accounts' ? 'Accounts organize balances for cash and financial accounts; they are optional for transaction tracking.' : 'Cash-flow insights summarize recorded income and expenses over time.'}
-        steps={activeSubTab === 'transactions' ? ['Choose Add to enter the date, type, amount, category, and account.', 'To bring in history, use Import and review its preview before saving.'] : activeSubTab === 'budget' ? ['Choose a month.', 'Set a limit for categories you want to monitor.'] : activeSubTab === 'accounts' ? ['Add an account name and type.', 'Enter its current balance if you want it included in your overview.'] : ['Record transactions regularly.', 'Use the period and category views to spot patterns.']}
+        title={activeSubTab === 'transactions' ? 'Transactions: money in and money out' : activeSubTab === 'schedule' ? 'Schedule expected cash flows' : `Money: ${activeSubTab}`}
+        summary={activeSubTab === 'transactions' ? 'Record income, expenses, and transfers so your cash-flow view reflects what happened.' : activeSubTab === 'schedule' ? 'Plan recurring bills, subscriptions, EMIs, and expected income. An item becomes an actual transaction only when you record or link it.' : activeSubTab === 'budget' ? 'Set monthly spending limits by category, then compare them with your recorded expenses.' : activeSubTab === 'accounts' ? 'Accounts organize balances for cash and financial accounts; they are optional for transaction tracking.' : activeSubTab === 'dividends' ? 'Review dividend cash receipts recorded from your investment holdings.' : 'Cash-flow insights summarize recorded income and expenses over time.'}
+        steps={activeSubTab === 'transactions' ? ['Choose Add to enter the date, type, amount, category, and account.', 'To bring in history, use Import and review its preview before saving.'] : activeSubTab === 'schedule' ? ['Add a bill or expected income, choose its cadence, dates, account, and optional category or asset.', 'When it is paid or received, record a new transaction or link an imported transaction.'] : activeSubTab === 'budget' ? ['Choose a month.', 'Set a limit for categories you want to monitor.'] : activeSubTab === 'accounts' ? ['Add an account name and type.', 'Enter its current balance if you want it included in your overview.'] : ['Record transactions regularly.', 'Use the period and category views to spot patterns.']}
         terms={[{ term: 'Income', definition: 'Money received.' }, { term: 'Expense', definition: 'Money paid out.' }, { term: 'Transfer', definition: 'Money moved between your own accounts.' }]}
       />
 
       {/* Sub Tabs Navigation */}
       <div className="flex items-center gap-6 border-b border-slate-200 text-xs font-semibold">
-        {['transactions', 'budget', 'accounts', 'insights'].map((tab) => (
+        {['transactions', 'dividends', 'budget', 'accounts', 'insights', 'schedule'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveSubTab(tab)}
@@ -687,6 +814,8 @@ export default function Money({ hideAmounts }) {
           </button>
         ))}
       </div>
+
+      {activeSubTab === 'schedule' && <Schedule setActiveSubTab={setActiveSubTab} />}
 
       {/* TAB 1: TRANSACTIONS VIEW */}
       {activeSubTab === 'transactions' && (
@@ -723,46 +852,7 @@ export default function Money({ hideAmounts }) {
                 ))}
               </select>
 
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <label className="flex items-center gap-1.5 text-slate-500 font-medium">
-                  From
-                  <input
-                    aria-label="Start date"
-                    type="date"
-                    value={dateRange.start}
-                    max={dateRange.end}
-                    onChange={(e) => setDateRange((current) => ({
-                      ...current,
-                      start: e.target.value,
-                      end: e.target.value > current.end ? e.target.value : current.end,
-                    }))}
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-slate-700"
-                  />
-                </label>
-                <label className="flex items-center gap-1.5 text-slate-500 font-medium">
-                  To
-                  <input
-                    aria-label="End date"
-                    type="date"
-                    value={dateRange.end}
-                    min={dateRange.start}
-                    max={formatLocalDate(new Date())}
-                    onChange={(e) => setDateRange((current) => ({
-                      ...current,
-                      start: e.target.value < current.start ? e.target.value : current.start,
-                      end: e.target.value,
-                    }))}
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-slate-700"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setDateRange({ start: getCurrentMonthStart(), end: formatLocalDate(new Date()) })}
-                  className="rounded-lg px-2 py-1.5 font-semibold text-emerald-800 hover:bg-emerald-50"
-                >
-                  This month
-                </button>
-              </div>
+              {dateRangeControls}
             </div>
           </div>
 
@@ -811,6 +901,10 @@ export default function Money({ hideAmounts }) {
             {transactionListError ? (
               <div className="rounded-2xl border border-red-200 bg-white p-8 text-center text-sm text-red-600" role="status">
                 Transaction list unavailable. Your summary totals are loaded separately.
+              </div>
+            ) : monthBucketsLoading ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-xs text-slate-500" role="status">
+                Loading transaction periods…
               </div>
             ) : groupedTransactions.length > 0 ? (
               groupedTransactions.map((yearGroup) => {
@@ -1010,110 +1104,112 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
         </div>
       )}
 
-      {/* TAB 2: BUDGET VIEW */}
-      {activeSubTab === 'budget' && (
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs space-y-6">
-          <div className="flex items-center justify-between">
+      {activeSubTab === 'dividends' && (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Monthly Spending Budgets</h2>
-              <p className="text-xs text-slate-500">Set a monthly limit for each category; spending updates automatically when you add expenses.</p>
+              <h2 className="text-lg font-bold text-slate-900">Dividend income</h2>
+              <p className="mt-1 text-xs text-slate-500">Cash dividends you recorded as received. Announcements are tracked in Wealth and are not counted until recorded.</p>
             </div>
-            <div className="flex items-center gap-3">
-              <input
-                aria-label="Budget month"
-                type="month"
-                value={budgetPeriod}
-                onChange={(e) => setBudgetPeriod(e.target.value)}
-                className="px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700"
-              />
-              <button
-                onClick={() => setShowAddCategoryModal(true)}
-                className="px-3 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" /> New Category
-              </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <select aria-label="Filter dividends by account" value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700">
+                <option value="">All accounts</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+              </select>
+              {dateRangeControls}
             </div>
           </div>
-
-          <div className="divide-y divide-slate-200">
-            {budgets.map((budget) => {
-              const hasLimit = budget.monthly_limit !== null;
-              const progress = hasLimit && budget.monthly_limit > 0
-                ? Math.min((budget.spent / budget.monthly_limit) * 100, 100)
-                : 0;
-              const overBudget = budget.over_budget;
-              return (
-                <form
-                  key={budget.category_id}
-                  onSubmit={(e) => handleSaveBudget(e, budget.category_id)}
-                  className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-4"
-                >
-                  <div className="min-w-0 space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
-                      <span className="font-bold text-slate-900">{budget.category_name}</span>
-                      <span className="text-slate-600">
-                        Spent {formatCurrency(budget.spent)}
-                        {hasLimit && (
-                          <span className="text-slate-400"> of {formatCurrency(budget.monthly_limit)}</span>
-                        )}
-                      </span>
+          {dividendTransactionsError && <p role="alert" className="text-xs text-red-600">{dividendTransactionsError}</p>}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-800">Dividends received · selected period</p>
+              <p className="mt-1 text-2xl font-extrabold text-emerald-900">{dividendTransactionsLoading ? 'Loading…' : formatCurrency(dividendTransactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0))}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Recorded dividend receipts</p>
+              <p className="mt-1 text-2xl font-extrabold text-slate-900">{dividendTransactionsLoading ? 'Loading…' : dividendTransactions.length}</p>
+            </div>
+          </div>
+          {dividendTransactionsLoading ? <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-xs text-slate-500">Loading dividend receipts…</div> : dividendTransactions.length ? (
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <div className="divide-y divide-slate-100">
+                {dividendTransactions.map((tx) => (
+                  <div key={tx.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-800">{tx.description || 'Dividend income'}</p>
+                      <p className="mt-1 text-[11px] text-slate-500">{new Date(`${String(tx.date).slice(0, 10)}T00:00:00`).toLocaleDateString()}{tx.account_name ? ` · ${tx.account_name}` : ''}</p>
                     </div>
                     <div className="flex items-center gap-3">
-                      <div className="w-full bg-slate-100 rounded-full h-2" role="progressbar" aria-valuenow={progress} aria-valuemin="0" aria-valuemax="100">
-                        <div
-                          className={`h-2 rounded-full ${overBudget ? 'bg-red-600' : 'bg-emerald-600'}`}
-                          style={{ width: `${progress}%` }}
-                        />
-                      </div>
-                      <span className={`shrink-0 text-[11px] font-semibold ${overBudget ? 'text-red-700' : 'text-emerald-700'}`}>
-                        {!hasLimit
-                          ? 'No limit'
-                          : budget.monthly_limit > 0
-                            ? `${Math.round((budget.spent / budget.monthly_limit) * 100)}% used`
-                            : '0 limit'}
-                      </span>
+                      <span className="font-bold text-emerald-700">+{formatCurrency(tx.amount)}</span>
+                      <button type="button" onClick={() => openEditTransaction(tx)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50">Edit</button>
                     </div>
-                    <p className={`text-[11px] ${overBudget ? 'font-semibold text-red-700' : 'text-slate-500'}`}>
-                      {!hasLimit
-                        ? 'Set a monthly limit to track this category.'
-                        : overBudget
-                          ? `Over budget by ${formatCurrency(Math.abs(budget.remaining))}`
-                          : `${formatCurrency(budget.remaining)} remaining`}
-                    </p>
                   </div>
-                  <div className="flex items-end gap-2 sm:pl-4">
-                    <label className="space-y-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                      Monthly limit
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        required
-                        aria-label={`${budget.category_name} monthly limit`}
-                        placeholder="Enter amount"
-                        value={budgetDrafts[budget.category_id] ?? ''}
-                        onChange={(e) => setBudgetDrafts((prev) => ({
-                          ...prev,
-                          [budget.category_id]: e.target.value,
-                        }))}
-                        className="block w-36 px-2.5 py-2 border border-slate-300 rounded-lg text-xs normal-case tracking-normal text-slate-900"
-                      />
-                    </label>
-                    <button
-                      type="submit"
-                      disabled={budgetsLoading}
-                      className="px-3 py-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white rounded-lg text-xs font-semibold"
-                    >
-                      Save
-                    </button>
-                  </div>
-                </form>
-              );
-            })}
-            {!budgetsLoading && budgets.length === 0 && (
-              <p className="py-8 text-center text-sm text-slate-500">No expense categories found.</p>
-            )}
-          </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
+              <p className="text-sm font-semibold text-slate-700">No dividend receipts recorded for this period</p>
+              <p className="mt-1 text-xs text-slate-500">Check the date range, or record a paid dividend from Wealth → holding details.</p>
+              {setActiveTab && <button type="button" onClick={() => setActiveTab('wealth')} className="mt-3 rounded-lg bg-emerald-800 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-900">Open Wealth</button>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 2: BUDGET VIEW */}
+      {activeSubTab === 'budget' && (
+        <div className="space-y-5">
+          {(() => {
+            const limitedBudgets = budgets.filter((budget) => budget.monthly_limit !== null);
+            const totalLimit = limitedBudgets.reduce((sum, budget) => sum + Number(budget.monthly_limit || 0), 0);
+            const totalSpent = budgets.reduce((sum, budget) => sum + Number(budget.spent || 0), 0);
+            const limitedSpent = limitedBudgets.reduce((sum, budget) => sum + Number(budget.spent || 0), 0);
+            const remaining = totalLimit - limitedSpent;
+            return <>
+              <div className="flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-800 p-5 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between sm:p-6">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200">Monthly budget planner</p>
+                  <h2 className="mt-1 text-xl font-bold">Make every limit easy to follow</h2>
+                  <p className="mt-1 text-xs text-emerald-100">Choose a month, set category limits, and watch spending update from your transactions.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input aria-label="Budget month" type="month" value={budgetPeriod} onChange={(e) => setBudgetPeriod(e.target.value)} className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white [color-scheme:dark]" />
+                  <button onClick={() => { setNewCatForm((current) => ({ ...current, type: 'EXPENSE' })); setShowAddCategoryModal(true); }} className="budget-new-category-button inline-flex items-center gap-1 rounded-lg bg-white px-3 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-50">
+                    <Plus className="h-3.5 w-3.5" /> New category
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="budget-summary-card budget-summary-limits rounded-xl border border-emerald-100 bg-emerald-50 p-4"><p className="budget-summary-label text-[11px] font-semibold text-emerald-800">Total limits</p><p className="budget-summary-value mt-1 text-xl font-bold text-emerald-950">{formatCurrency(totalLimit)}</p><p className="budget-summary-detail mt-1 text-[10px] text-emerald-700">{limitedBudgets.length} categories budgeted</p></div>
+                <div className="budget-summary-card budget-summary-spent rounded-xl border border-sky-100 bg-sky-50 p-4"><p className="budget-summary-label text-[11px] font-semibold text-sky-800">Total spent</p><p className="budget-summary-value mt-1 text-xl font-bold text-sky-950">{formatCurrency(totalSpent)}</p><p className="budget-summary-detail mt-1 text-[10px] text-sky-700">Across this month’s expense categories</p></div>
+                <div className={`budget-summary-card ${remaining < 0 ? 'budget-summary-over' : 'budget-summary-remaining'} rounded-xl border p-4 ${remaining < 0 ? 'border-rose-100 bg-rose-50' : 'border-violet-100 bg-violet-50'}`}><p className="budget-summary-label text-[11px] font-semibold">Budget remaining</p><p className="budget-summary-value mt-1 text-xl font-bold">{formatCurrency(remaining)}</p><p className="budget-summary-detail mt-1 text-[10px]">From categories with a limit</p></div>
+              </div>
+
+              <div className="flex items-end justify-between gap-3"><div><h3 className="text-sm font-bold text-slate-900">Category limits</h3><p className="mt-0.5 text-[11px] text-slate-500">Save a limit on any card. Unbudgeted categories remain visible.</p></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">{budgets.length} categories</span></div>
+              {budgetsLoading ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{[1, 2, 3].map((item) => <div key={item} className="h-44 animate-pulse rounded-xl bg-slate-100" />)}</div> : budgets.length ? (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {budgets.map((budget) => {
+                    const hasLimit = budget.monthly_limit !== null;
+                    const limit = Number(budget.monthly_limit || 0);
+                    const spent = Number(budget.spent || 0);
+                    const progress = hasLimit && limit > 0 ? Math.min((spent / limit) * 100, 100) : 0;
+                    const overBudget = Boolean(budget.over_budget);
+                    const percentage = hasLimit && limit > 0 ? Math.round((spent / limit) * 100) : 0;
+                    return <form key={budget.category_id} onSubmit={(e) => handleSaveBudget(e, budget.category_id)} className={`budget-category-card flex min-h-48 flex-col justify-between rounded-xl border bg-white p-4 shadow-sm transition-shadow hover:shadow-md ${overBudget ? 'border-rose-200' : 'border-slate-200'}`}>
+                      <div>
+                        <div className="flex items-start justify-between gap-2"><h4 className="flex items-center gap-2 text-sm font-bold text-slate-900"><span aria-hidden="true">{getCategoryEmoji(budget)}</span>{budget.category_name}</h4><span className={`budget-status-pill shrink-0 rounded-full px-2 py-1 text-[9px] font-bold ${overBudget ? 'budget-status-over bg-rose-100 text-rose-700' : hasLimit ? 'budget-status-on-track bg-emerald-100 text-emerald-800' : 'budget-status-not-set bg-slate-100 text-slate-500'}`}>{overBudget ? 'Over limit' : hasLimit ? `${percentage}% used` : 'Not set'}</span></div>
+                        <div className="mt-4 flex items-end justify-between gap-2"><div><p className="budget-field-label text-[10px] text-slate-500">Spent</p><p className="mt-0.5 text-base font-bold text-slate-900">{formatCurrency(spent)}</p></div>{hasLimit && <div className="text-right"><p className="budget-field-label text-[10px] text-slate-500">Limit</p><p className="mt-0.5 text-xs font-semibold text-slate-700">{formatCurrency(limit)}</p></div>}</div>
+                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label={`${budget.category_name} budget usage`} aria-valuenow={percentage} aria-valuemin="0" aria-valuemax="100"><div className={`h-full rounded-full transition-all ${overBudget ? 'bg-rose-500' : 'bg-emerald-500'}`} style={{ width: `${progress}%` }} /></div>
+                        <p className={`budget-card-detail mt-2 min-h-4 text-[10px] ${overBudget ? 'budget-card-detail-over font-semibold text-rose-700' : 'text-slate-500'}`}>{!hasLimit ? 'Set a limit to track this category.' : overBudget ? `Over by ${formatCurrency(Math.abs(Number(budget.remaining || 0)))}` : `${formatCurrency(Number(budget.remaining || 0))} remaining`}</p>
+                      </div>
+                      <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3"><label htmlFor={`budget-${budget.category_id}`} className="sr-only">{budget.category_name} monthly limit</label><input id={`budget-${budget.category_id}`} type="number" min="0" step="0.01" required aria-label={`${budget.category_name} monthly limit`} placeholder="Monthly limit" value={budgetDrafts[budget.category_id] ?? ''} onChange={(e) => setBudgetDrafts((prev) => ({ ...prev, [budget.category_id]: e.target.value }))} className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100" /><button type="submit" disabled={budgetsLoading} className="rounded-lg bg-emerald-800 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-900 disabled:opacity-50">Save</button></div>
+                    </form>;
+                  })}
+                </div>
+              ) : <div className="rounded-xl border border-dashed border-slate-300 py-12 text-center text-sm text-slate-500">No expense categories found.</div>}
+            </>;
+          })()}
         </div>
       )}
 
@@ -1210,7 +1306,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
 
       {/* ADD TRANSACTION MODAL */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-transparent flex items-center justify-center p-4 z-50">
+        <div className="transaction-modal-backdrop fixed inset-0 flex items-center justify-center p-4 z-50" onMouseDown={(event) => { if (event.target === event.currentTarget) { setShowAddModal(false); setEditingTransaction(null); } }}>
           <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-lg w-full shadow-2xl">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
               <h3 className="font-bold text-slate-900 text-sm">{editingTransaction ? 'Edit Transaction' : 'Add Transaction'}</h3>
@@ -1276,16 +1372,10 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                 <div>
                   <div className="mb-1 flex items-center justify-between">
                     <label className="block font-semibold text-slate-700">Category</label>
-                    {categoriesError && (
-                      <button
-                        type="button"
-                        onClick={retryFetchCategories}
-                        disabled={categoriesLoading}
-                        className="font-semibold text-emerald-800 hover:text-emerald-900 disabled:opacity-50"
-                      >
-                        {categoriesLoading ? 'Loading…' : 'Retry'}
-                      </button>
-                    )}
+                    <div className="flex items-center gap-3">
+                      <button type="button" onClick={() => { setNewCatForm((current) => ({ ...current, type: form.type })); setShowAddCategoryModal(true); }} className="font-semibold text-emerald-800 hover:text-emerald-900">+ Add category</button>
+                      {categoriesError && <button type="button" onClick={retryFetchCategories} disabled={categoriesLoading} className="font-semibold text-emerald-800 hover:text-emerald-900 disabled:opacity-50">{categoriesLoading ? 'Loading…' : 'Retry'}</button>}
+                    </div>
                   </div>
                   <select
                     value={form.category_id}
@@ -1300,9 +1390,12 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
                     {transactionCategories.length === 0 && !categoriesLoading && !categoriesError && (
                       <option value="" disabled>No {form.type.toLowerCase()} categories available</option>
                     )}
-                    {transactionCategories.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
+                    {!!systemTransactionCategories.length && <optgroup label="Finverse categories">
+                      {systemTransactionCategories.map((category) => <option key={category.id} value={category.id}>{getCategoryEmoji(category)}{getCategoryEmoji(category) ? ' ' : ''}{category.name}</option>)}
+                    </optgroup>}
+                    {!!customTransactionCategories.length && <optgroup label="Your categories">
+                      {customTransactionCategories.map((category) => <option key={category.id} value={category.id}>{getCategoryEmoji(category)}{getCategoryEmoji(category) ? ' ' : ''}{category.name}</option>)}
+                    </optgroup>}
                   </select>
                   {categoriesLoading && (
                     <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500" role="status">
@@ -1388,7 +1481,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
 
       {/* CREATE CATEGORY MODAL */}
       {showAddCategoryModal && (
-        <div className="fixed inset-0 bg-transparent flex items-center justify-center p-4 z-50">
+        <div className="transaction-modal-backdrop fixed inset-0 flex items-center justify-center p-4 z-50" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowAddCategoryModal(false); }}>
           <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
               <h3 className="font-bold text-slate-900 text-sm">Create New Category</h3>
@@ -1424,6 +1517,14 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
               </div>
 
               <div>
+                <label className="block font-semibold text-slate-700 mb-1">Category emoji</label>
+                <div className="flex items-center gap-2">
+                  <input type="text" aria-label="Category emoji" maxLength={8} value={newCatForm.icon} onChange={(e) => setNewCatForm({ ...newCatForm, icon: e.target.value })} className="w-16 rounded-lg border border-slate-300 px-3 py-2 text-center text-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500" />
+                  <div className="flex flex-wrap gap-1">{['🏷️', '💼', '🏠', '🍽️', '🛍️', '🚗', '🩺', '🛡️', '🎬', '✈️', '📚', '💳'].map((emoji) => <button key={emoji} type="button" aria-label={`Use ${emoji} category icon`} onClick={() => setNewCatForm({ ...newCatForm, icon: emoji })} className={`rounded-md p-1.5 text-base hover:bg-slate-100 ${newCatForm.icon === emoji ? 'bg-emerald-50 ring-1 ring-emerald-500' : ''}`}>{emoji}</button>)}</div>
+                </div>
+              </div>
+
+              <div>
                 <label className="block font-semibold text-slate-700 mb-1">Subcategories (comma separated)</label>
                 <input
                   type="text"
@@ -1456,7 +1557,7 @@ const yearOpen = expandedYears[yearGroup.year] ?? false;
 
       {/* CREATE ACCOUNT MODAL */}
       {showAddAccountModal && (
-        <div className="fixed inset-0 bg-transparent flex items-center justify-center p-4 z-50">
+        <div className="transaction-modal-backdrop fixed inset-0 flex items-center justify-center p-4 z-50" onMouseDown={(event) => { if (event.target === event.currentTarget) { setShowAddAccountModal(false); setEditingAccount(null); } }}>
           <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
               <h3 className="font-bold text-slate-900 text-sm">{editingAccount ? 'Edit Account' : 'Add Bank / Wallet Account'}</h3>

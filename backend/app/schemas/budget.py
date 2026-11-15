@@ -11,6 +11,7 @@ class BudgetUpsert(BaseModel):
 class BudgetOut(BaseModel):
     category_id: str
     category_name: str
+    icon: str | None = None
     monthly_limit: float | None = None
     spent: float = 0
     remaining: float | None = None

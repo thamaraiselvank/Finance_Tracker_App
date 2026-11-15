@@ -26,7 +26,9 @@ from app.routers import (
     debts,
     insurance_policies,
     financial_profiles,
-    recommendations
+    recommendations,
+    scheduled_cashflows,
+    tax,
 )
 
 logger = logging.getLogger("finverse.main")
@@ -78,6 +80,8 @@ app.include_router(debts.router, prefix=settings.API_V1_STR)
 app.include_router(insurance_policies.router, prefix=settings.API_V1_STR)
 app.include_router(financial_profiles.router, prefix=settings.API_V1_STR)
 app.include_router(recommendations.router, prefix=settings.API_V1_STR)
+app.include_router(scheduled_cashflows.router, prefix=settings.API_V1_STR)
+app.include_router(tax.router, prefix=settings.API_V1_STR)
 
 @app.get("/api/health")
 def health_check():
